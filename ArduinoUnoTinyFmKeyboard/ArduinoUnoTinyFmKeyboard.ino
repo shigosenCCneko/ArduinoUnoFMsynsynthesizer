@@ -4,11 +4,11 @@
 
 #define PG_CHG  13
 #define FIRST_TONE 0
-
+// スキャンするポート番号と音色
 //                       C   #C    D   #D   E   F  #F   G  #G   A  #A   B   C  #C   D  #D  E
 uint8_t pin_no[18] = {  19,  18,  17,  16, 15, 14, 12, 10,  9,  8,  7,  6,  5,  4,  3 , 2, 1, 0  };
 
-// ユーザ定義音色                                  
+// ユーザ定義音色例                                  
 static const uint8_t sample_tone[16] = {15, 3, 4, 1, 1, 17, 1,  4,  10, 9, 3, 2, 4, 0, 1,   0};
 
 
