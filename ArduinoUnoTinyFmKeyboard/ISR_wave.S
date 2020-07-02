@@ -71,7 +71,8 @@ TIMER1_COMPA_vect:
   push TOTAL_OUT
   push CHANNEL_OUT
   push r20
-  
+
+
 
 
 #ifdef USE_DAC
@@ -85,11 +86,13 @@ TIMER1_COMPA_vect:
 
   
   lds r20,wait_cnt
-#ifdef USE_24KHZ
-  subi r20,32
-#else
-  subi r20,64
-#endif
+  inc r20
+//#ifdef USE_24KHZ
+//  subi r20,32
+//#else
+//  subi r20,64
+//#endif
+  andi r20,0x07 //8回に1回 subi 32 と同じ 
   sts wait_cnt,r20
 //
   ldi YL,lo8(memtone)
@@ -107,7 +110,6 @@ loop:
   std Y + SIN_POSH, ZL
   std Y + SIN_POSL, ZH
 
-
   clr ZH                  //Read sin table from tone pointer
 
   ldd r16,Y+WAVE_TBLL
@@ -118,23 +120,11 @@ loop:
   //ld CHANNEL_OUT,Z
   lpm CHANNEL_OUT,Z         //波形をPROGMEMで置いている場合
     
-  // volume
-  subi CHANNEL_OUT,(-31)
-  ldi ZL,64                 //計算簡素化のため conv_volを[63][32]から[64][32]に変更した
-  ldd  r16, Y + VOL
-  muls r16,ZL
-  movw ZL,r0
-  //clr r0
-  add ZL,CHANNEL_OUT
-  //adc ZH,r0
-  subi ZL,lo8(-(conv_vol ))
-  sbci ZH,hi8(-(conv_vol ))
-  lpm CHANNEL_OUT,Z
-
 
 //------- envelope   --- r16  level  r17 env_cnt  ----------------------
   ldd r16,Y + LEVEL
-   cpi r20,(0)
+//   cpi r20,(0)
+   cp r20,XL
    breq DO_ENVCHG
    rjmp ENV_LEVEL   
 
@@ -172,7 +162,7 @@ DO_REL_DEC:
   breq STOP_TONE 
   dec r16
   std Y+LEVEL,r16
-
+  sbi 11,2
   rjmp ENV_LEVEL  
  
   
@@ -243,7 +233,9 @@ ATK_FASE:
   
 
 ENV_LEVEL:  
-  subi CHANNEL_OUT,(-31);
+
+/*
+   subi CHANNEL_OUT,(-31);
   ldi ZL,64
   mul r16,ZL
   movw ZL,r0
@@ -253,9 +245,54 @@ ENV_LEVEL:
   subi ZL,lo8(-(conv_vol))
   sbci ZH,hi8(-(conv_vol))
   lpm CHANNEL_OUT,Z 
+ 
+ 
+ 上の素直なコードをaとbに対し２回行っていたものを
+
+ *   (a * b )/31 を
+ *   (( (a +1 )<<2 )*( (b + 1) <<1 ) >> 8) -1 で代用
+ * 
+ * 
+ * 
 
 
-  //add TOTAL_OUT,CHANNEL_OUT
+ldd XH,Y + VOL
+inc r16
+lsl r16
+lsl r16
+inc XH
+lsl XH
+mul r16,XH
+dec r1
+subi CHANNEL_OUT,(-31)
+ldi ZL,64
+mul r1,ZL
+movw ZL,r0
+add ZL,CHANNEL_OUT
+  subi ZL,lo8(- (conv_vol)   )
+  sbci ZH,hi8(-(conv_vol))
+  lpm CHANNEL_OUT,Z 
+
+さらにコードのシフトを最適化した
+
+
+*/
+ldd XH,Y + VOL
+inc r16
+inc XH
+lsl XH
+mul r16,XH
+movw ZL,r0
+andi ZL,0xc0              //int()
+
+subi CHANNEL_OUT,(-31)
+add ZL,CHANNEL_OUT
+  subi ZL,lo8(- (conv_vol - 0x40)   )
+  sbci ZH,hi8(-(conv_vol - 0x40))
+  lpm CHANNEL_OUT,Z 
+
+ 
+
 
 /*-----------------------------------------op2---------------*/
 OPERATOR2:
@@ -271,21 +308,11 @@ OPERATOR2:
   adc ZL,r16
   andi ZL,TABLE_SIZE_MASK
 
-//or r17,r16
-//brne DO_STEP2
-//ldi CHANNEL_OUT,0
-//rjmp CHANNEL_END
-//DO_STEP2:
-  
   std Y + SIN_POSH, ZL
   std Y + SIN_POSL, ZH
   
-//
-//  add CHANNEL_OUT,CHANNEL_OUT
-//  andi CHANNEL_OUT,0x3f
   add ZL,CHANNEL_OUT
   andi ZL,0x3f
-
 
     clr ZH                  //Read sin table from tone pointer
 
@@ -297,27 +324,14 @@ OPERATOR2:
   //ld CHANNEL_OUT,Z
   lpm CHANNEL_OUT,Z         //波形をPROGMEMで置いている場合
     
-  // volume
-  subi CHANNEL_OUT,(-31)
-  ldi ZL,64                 //計算簡素化のため conv_volを[63][32]から[64][32]に変更した
-  ldd  r16, Y + VOL
-  muls r16,ZL
-  movw ZL,r0
-  //clr r0
-  add ZL,CHANNEL_OUT
-  //adc ZH,r0
-  subi ZL,lo8(-(conv_vol ))
-  sbci ZH,hi8(-(conv_vol ))
-  lpm CHANNEL_OUT,Z
 
 
-//------- envelope   --- r16  level  r17 env_cnt  ----------------------
+//------- envelope   --- r16  level  r17 env_cnt   r21 vol ----------------------
   ldd r16,Y + LEVEL
-   cpi r20,(0)
+//   cpi r20,(0)
+   cp r20,XL
    breq DO_ENVCHG2
    rjmp ENV_LEVEL2  
-
-
   
 DO_ENVCHG2:
 
@@ -334,7 +348,7 @@ DO_ENVCHG2:
   breq SUS_FASE2
   
 //  cpi XH,F_REL
-//  breq REL_FASE
+//  breq REL_FASE2
 //  rjmp ENV_LEVEL
 
 
@@ -352,6 +366,7 @@ DO_REL_DEC2:
   breq STOP_TONE2 
   dec r16
   std Y+LEVEL,r16
+  sbi 11,2
   rjmp ENV_LEVEL2  
 
   
@@ -419,20 +434,58 @@ ATK_FASE2:
   sub r17,XH
   brcs DO_ATK_INC2
   std Y + ENV_CNT,r17
-//  rjmp ENV_LEVEL    //このrjmpを減らすのに一番効果のあるのはAtkのここ
+//  rjmp ENV_LEVELldd XH,Y + VOL
+inc r16
+inc XH
+lsl XH
+mul r16,XH
+movw ZL,r0
+andi ZL,0xc0              //int()
+
+subi CHANNEL_OUT,(-31)
+add ZL,CHANNEL_OUT
+  subi ZL,lo8(- (conv_vol - 0x40)   )
+  sbci ZH,hi8(-(conv_vol - 0x40))
+  lpm CHANNEL_OUT,Z     //このrjmpを減らすのに一番効果のあるのはAtkのここ
   
 
 ENV_LEVEL2:  
-  subi CHANNEL_OUT,(-31);
-  ldi ZL,64
-  mul r16,ZL
-  movw ZL,r0
-  //clr r0
-  add ZL,CHANNEL_OUT
-  //adc ZH,r0
-  subi ZL,lo8(-(conv_vol))
-  sbci ZH,hi8(-(conv_vol))
+
+
+/*   ((a + 1)(b+1)/32 >> 5 ) + 1 */
+//ldd XH,Y + VOL
+//inc r16
+//lsl r16
+//lsl r16
+//inc XH
+//lsl XH
+//mul r16,XH
+//dec r1
+//
+//subi CHANNEL_OUT,(-31)
+//ldi ZL,64
+//mul r1,ZL
+//movw ZL,r0
+//add ZL,CHANNEL_OUT
+//  subi ZL,lo8(- (conv_vol)   )
+//  sbci ZH,hi8(-(conv_vol))
+//  lpm CHANNEL_OUT,Z 
+
+
+ldd XH,Y + VOL
+inc r16
+inc XH
+lsl XH
+mul r16,XH
+movw ZL,r0
+andi ZL,0xc0
+subi CHANNEL_OUT,(-31)
+
+add ZL,CHANNEL_OUT
+  subi ZL,lo8(- (conv_vol - 0x40)   )
+  sbci ZH,hi8(-(conv_vol - 0x40))
   lpm CHANNEL_OUT,Z 
+
 
 CHANNEL_END:
 
@@ -443,9 +496,6 @@ CHANNEL_END:
 
     subi YL,lo8(-(SIZEOF_MEMTONE))
     sbci YH,hi8(-(SIZEOF_MEMTONE))
-
-
-
 
   subi XL,(1)
   brcs  endloop
@@ -470,7 +520,9 @@ endloop:
 #endif
 
 
-
+//.rept 30
+//nop
+//.endr
 
   pop r20
   pop CHANNEL_OUT
@@ -497,7 +549,7 @@ endloop:
 
 
 // 除算テーブル
-
+.balign 256
 .global conv_vol   //アドレス計算高速化の為 conv_vol[64][32]
 conv_vol: 
 .dc.b    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,0
