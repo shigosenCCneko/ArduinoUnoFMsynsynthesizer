@@ -60,7 +60,7 @@ void loop() {
         state[i] = 20;
         uint8_t note = i + j + FIRST_TONE;
         note_no[i] = note;
-        ENVTONE.midi_command(0x90, 0x90, note, 127);       //Note on 
+        ENVTONE.midi_command(0x90, 0x90, note, 120);       //Note on 
       }
     }
 
