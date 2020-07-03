@@ -287,8 +287,8 @@ andi ZL,0xc0              //int()
 
 subi CHANNEL_OUT,(-31)
 add ZL,CHANNEL_OUT
-  subi ZL,lo8(- (conv_vol - 0x40)   )
-  sbci ZH,hi8(-(conv_vol - 0x40))
+  subi ZL,lo8(- (conv_vol ))
+  sbci ZH,hi8(-(conv_vol ))
   lpm CHANNEL_OUT,Z 
 
  
@@ -435,18 +435,7 @@ ATK_FASE2:
   brcs DO_ATK_INC2
   std Y + ENV_CNT,r17
 //  rjmp ENV_LEVELldd XH,Y + VOL
-inc r16
-inc XH
-lsl XH
-mul r16,XH
-movw ZL,r0
-andi ZL,0xc0              //int()
 
-subi CHANNEL_OUT,(-31)
-add ZL,CHANNEL_OUT
-  subi ZL,lo8(- (conv_vol - 0x40)   )
-  sbci ZH,hi8(-(conv_vol - 0x40))
-  lpm CHANNEL_OUT,Z     //このrjmpを減らすのに一番効果のあるのはAtkのここ
   
 
 ENV_LEVEL2:  
@@ -482,8 +471,8 @@ andi ZL,0xc0
 subi CHANNEL_OUT,(-31)
 
 add ZL,CHANNEL_OUT
-  subi ZL,lo8(- (conv_vol - 0x40)   )
-  sbci ZH,hi8(-(conv_vol - 0x40))
+  subi ZL,lo8(-(conv_vol ))
+  sbci ZH,hi8(-(conv_vol ))
   lpm CHANNEL_OUT,Z 
 
 
