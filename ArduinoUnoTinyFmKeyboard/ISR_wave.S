@@ -162,7 +162,6 @@ DO_REL_DEC:
   breq STOP_TONE 
   dec r16
   std Y+LEVEL,r16
-  sbi 11,2
   rjmp ENV_LEVEL  
  
   
@@ -367,7 +366,6 @@ DO_REL_DEC2:
   breq STOP_TONE2 
   dec r16
   std Y+LEVEL,r16
-  sbi 11,2
   rjmp ENV_LEVEL2  
 
   
