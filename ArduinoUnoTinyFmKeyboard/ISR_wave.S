@@ -283,12 +283,13 @@ inc XH
 lsl XH
 mul r16,XH
 movw ZL,r0
+subi ZL,lo8(-(conv_vol -2))
+sbci ZH,hi8(-(conv_vol -2))
 andi ZL,0xc0              //int()
 
 subi CHANNEL_OUT,(-31)
 add ZL,CHANNEL_OUT
-  subi ZL,lo8(- (conv_vol ))
-  sbci ZH,hi8(-(conv_vol ))
+
   lpm CHANNEL_OUT,Z 
 
  
@@ -467,12 +468,13 @@ inc XH
 lsl XH
 mul r16,XH
 movw ZL,r0
+subi ZL,lo8(-(conv_vol -2))
+sbci ZH,hi8(-(conv_vol -2))
 andi ZL,0xc0
 subi CHANNEL_OUT,(-31)
 
 add ZL,CHANNEL_OUT
-  subi ZL,lo8(-(conv_vol ))
-  sbci ZH,hi8(-(conv_vol ))
+
   lpm CHANNEL_OUT,Z 
 
 
