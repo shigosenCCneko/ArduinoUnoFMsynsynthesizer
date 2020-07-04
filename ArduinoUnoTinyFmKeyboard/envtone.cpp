@@ -120,11 +120,11 @@ EnvTone::setup_hardware() {
   TCCR1B = 0;
   TCNT1 = 0;
 
-#if  (PWM_HZ == 24)
+#if  (F_PWM == 24)
   OCR1A = 666; //24KHz
-#elif  (PWM_HZ == 20)
+#elif  (F_PWM == 20)
   OCR1A = 799; //20KHz
-#elif (PWM_HZ == 16)
+#elif (F_PWM == 16)
    OCR1A = 999; //16KHz
 #endif
 
