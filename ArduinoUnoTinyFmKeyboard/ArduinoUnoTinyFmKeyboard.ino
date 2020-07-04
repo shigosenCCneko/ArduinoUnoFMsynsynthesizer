@@ -27,8 +27,8 @@ void setup() {
   ENVTONE.setup_hardware();             //ハードウェア初期化
   
 //ENVTONE.set_midistate(MIDI_POLY);     //ポリフォニックモード(default)
-// ENVTONE.midi_pg_chg(4);              //プリセット音色番号０
-// ENVTONE.midi_set_tone(sample_tone);   //ユーザ定義音色ロード
+// ENVTONE.midi_pg_chg(1);              //プリセット音色番号０
+ ENVTONE.midi_set_tone(sample_tone);   //ユーザ定義音色ロード
   TIMSK0 = 0;                           //Timre0停止　停止しなくてもOK
 /* --------------------------------------------------------------------- */
 
@@ -60,7 +60,7 @@ void loop() {
         state[i] = 20;
         uint8_t note = i + j + FIRST_TONE;
         note_no[i] = note;
-        ENVTONE.midi_command(0x90, 0x90, note, 120);       //Note on 
+        ENVTONE.midi_command(0x90, 0x90, note, 80);       //Note on 
       }
     }
 

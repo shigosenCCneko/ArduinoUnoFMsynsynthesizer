@@ -2,14 +2,15 @@
  * 最大発音数 default= 4
  * sampling周波数20MHzなら4or5
  */
-#define MAX_REALTONE 4
-
+#define MAX_REALTONE 8
 #define MAX_TONE  (MAX_REALTONE * 2)
 /*
  * サンプリング周波数,
  * コメントアウトすれば20MHz
  */
-#define USE_24KHZ
+
+#define PWM_HZ  16
+
 
 /*
  * PWM_PIN 出力PINの選択  3,5,6,11
