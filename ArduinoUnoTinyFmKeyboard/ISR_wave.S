@@ -87,13 +87,8 @@ TIMER1_COMPA_vect:
   
   lds r20,wait_cnt
   inc r20
-//#ifdef USE_24KHZ
-//  subi r20,32
-//#else
-//  subi r20,64
-//#endif
-  andi r20,0x07 //8回に1回 subi 32 と同じ 
-  sts wait_cnt,r20
+  andi r20 ,0x07 //8回に1回 subi 32 と同じ 
+  sts wait_cnt, r20
 //
   ldi YL,lo8(memtone)
   ldi YH,hi8(memtone)
@@ -123,8 +118,8 @@ loop:
 
 //------- envelope   --- r16  level  r17 env_cnt  ----------------------
   ldd r16,Y + LEVEL
-//   cpi r20,(0)
-   cp r20,XL
+//   cpi ,(0)
+   cp r20 ,XL
    breq DO_ENVCHG
    rjmp ENV_LEVEL   
 
