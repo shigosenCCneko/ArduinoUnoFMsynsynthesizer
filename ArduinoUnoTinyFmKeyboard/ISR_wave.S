@@ -1,6 +1,6 @@
 
 /*
-   PWM out PIN3
+   FM output PWM
 
 */
 #include <avr/io.h>
@@ -272,7 +272,7 @@ ENV_LEVEL:
  *   a * b /8
  * 
  */
-  fmulsu CHANNEL_OUT,r16
+  fmulsu CHANNEL_OUT,r16		//Thank to Mr.Nanase
   asr r0
   asr r0
   std Y + FBVAL,r0
@@ -447,9 +447,6 @@ CHANNEL_END:
 #endif
 
 
-//.rept 5
-//nop
-//.endr
 
   pop r21
   pop r20
