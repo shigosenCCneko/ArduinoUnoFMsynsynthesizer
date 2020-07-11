@@ -7,7 +7,7 @@ ArduinoUnoで２オペレータのFM音源を実現するライブラリと
 ##  仕様
 
 Timer1を使いサンプル数64の波形データを2オペレータのFM音源の直列アルゴリズムとして合成しTimer0かTimer2を使ったPWMから出力します  
-発音数や出力ポート等の各種設定は**envtone_def.h**で定義しています。
+発音数や出力ポート等の各種設定は**FMTONE_def.h**で定義しています。
 
 ### FM音源
 2オペレータ直列アルゴリズムのみ  
@@ -38,7 +38,7 @@ FeedBackは処理時間の関係で断念しました
 
 Timer0を使用するとdelay()等の時間管理が使えなくなります  
 ### サンプリング周波数、最大発音数
-サンプリング周波数は16KHz,20KHz,24KHz 可能同時発音数はサンプリング周波数とメインルーチンの処理により変わってきます、　処理が重い時はenvtone_def.hの　F_PWM,MAX_REALTONEを変更して下さい
+サンプリング周波数は16KHz,20KHz,24KHz 可能同時発音数はサンプリング周波数とメインルーチンの処理により変わってきます、　処理が重い時はFMTONE_def.hの　F_PWM,MAX_REALTONEを変更して下さい
 
 
 |サンプリング周波数F_PWM|最大発音可能音数　MAX_REALTONE　|
@@ -62,14 +62,14 @@ Timer0を使用するとdelay()等の時間管理が使えなくなります
 
 ## インターフェイス
 
-#### ENVTONE.setup_hardware()
+#### FMTONE.setup_hardware()
     タイマ等ハードウェアの設定
 
-#### ENVTONE.set_midistate(miditype)
+#### FMTONE.set_midistate(miditype)
     miditype:  
             MIDI_POLY  MIDIチャンネル1 4音ポリフォニックモード
             MIDI_MONO  MIDIチャンネル1～4 モノフォニックモード
-#### ENVTONE.midi_pg_chg(program_no)
+#### FMTONE.midi_pg_chg(program_no)
     program_no
       0 シンセトランペット
       1 トランペット
@@ -77,8 +77,8 @@ Timer0を使用するとdelay()等の時間管理が使えなくなります
       3
       4 シンセリード
 
-#### ENVTONE.midi_set_tone(tone)
-    4チャンネルすべてに音色を設定
+#### FMTONE.midi_set_tone(tone)
+    ユーザ定義音色を4チャンネルすべてに設定
     uint8_t tone[16]=
 
     OP1
@@ -109,16 +109,16 @@ Timer0を使用するとdelay()等の時間管理が使えなくなります
 
     enum wavetype {SIN, CLIP_SIN, TRI, SAW, RECT, ABS_SIN};  
 
-    波形データはenvtone.cppでcharの64byteの配列に置いていますので
+    波形データはFMTONE.cppでcharの64byteの配列に置いていますので
     適当なデータに置き換えて鳴らせます。
 
-#### EnvTone.set_tone(uint8_t ch , uint8_t tone[16])
+#### FMTONE.set_tone(uint8_t ch , uint8_t tone[16])
     MIDIチャンネル指定音色設定、パラメータはチャンネル以外は
-    ENVTONE.midi_set_tone(tone)と同じ
+    FMTONE.midi_set_tone(tone)と同じ
 
 
 
-#### ENVTONE.midi_command(com, dat1, dat2, dat3)
+#### FMTONE.midi_command(com, dat1, dat2, dat3)
     MIDIコマンド送信
     0x80 NOTE OFF
     0x90 NOTE ON

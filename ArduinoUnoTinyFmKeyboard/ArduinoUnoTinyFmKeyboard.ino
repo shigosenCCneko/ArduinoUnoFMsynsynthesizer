@@ -1,15 +1,16 @@
 
-#include "envtone.h"
+#include "fmtone.h"
 
 
-#define PG_CHG  13
+#define COMMAND_PIN  13
 #define FIRST_TONE 0
 // スキャンするポート番号と音色
 //                       C   #C    D   #D   E   F  #F   G  #G   A  #A   B   C  #C   D  #D  E
 uint8_t pin_no[18] = {  19,  18,  17,  16, 15, 14, 12, 10,  9,  8,  7,  6,  5,  4,  3 , 2, 1, 0  };
 
-// ユーザ定義音色例                                  
-static const uint8_t sample_tone[16] = {15, 3, 4, 1, 1, 17, 1,  4,  10, 9, 3, 2, 4, 0, 1,   0};
+// ユーザ定義音色例            
+// (op1) FB , Atk ,Decy, SL, Sus, Rel, TL,Mul,Ws ,(op2) Atk ,Decy, SL, Sus, Rel, TL,Mul,Ws                  
+static const uint8_t sample_tone[17] = { 2,15, 9, 4, 3, 0,17,  3, 1,  15, 8, 5, 3, 8, 0,  1, 0,};
 
 
 uint8_t state[18];
@@ -24,11 +25,11 @@ void setup() {
 
 /*    ライブラリset up -------------------------------------------------*/
 
-  ENVTONE.setup_hardware();             //ハードウェア初期化
+  FMTONE.setup_hardware();             //ハードウェア初期化
   
-//ENVTONE.set_midistate(MIDI_POLY);     //ポリフォニックモード(default)
-// ENVTONE.midi_pg_chg(1);              //プリセット音色番号０
- ENVTONE.midi_set_tone(sample_tone);   //ユーザ定義音色ロード
+//FMTONE.set_midistate(MIDI_POLY);     //ポリフォニックモード(default)
+// FMTONE.midi_pg_chg(4);              //プリセット音色番号０
+ FMTONE.midi_set_tone(sample_tone);   //ユーザ定義音色ロード
   TIMSK0 = 0;                           //Timre0停止　停止しなくてもOK
 /* --------------------------------------------------------------------- */
 
@@ -38,7 +39,7 @@ void setup() {
     state[i] = 0;
   }
 /* コマンドキー */
-  pinMode(PG_CHG, INPUT_PULLUP);
+  pinMode(COMMAND_PIN, INPUT_PULLUP);
 }
 
 
@@ -50,23 +51,23 @@ void loop() {
 
       if (state[i] == 1) {
         state[i] = 0;
-        ENVTONE.midi_command(0x90, 0x90, note_no[ i], 0);  //Note Off
+        FMTONE.midi_command(0x90, 0x90, note_no[ i], 0);  //Note Off
       } else {
         if (state[i] > 1)
           state[i] = state[i] - 1;
       }
     } else {
       if (state[i] == 0) {
-        state[i] = 20;
+        state[i] = 10;
         uint8_t note = i + j + FIRST_TONE;
         note_no[i] = note;
-        ENVTONE.midi_command(0x90, 0x90, note, 80);       //Note on 
+        FMTONE.midi_command(0x90, 0x90, note, 120);       //Note on 
       }
     }
 
     /* コマンドキー 押下 */
     
-    if (digitalRead(PG_CHG) == LOW) {
+    if (digitalRead(COMMAND_PIN) == LOW) {
       if (pg_state == 0) {
         pg_state = 1;
         while (1) {       //コマンドキーが押されるまでループ
@@ -84,14 +85,14 @@ void loop() {
             pg_no--;
             if (pg_no < 0)
               pg_no = MAX_DEFAULT_TONE - 1;
-            ENVTONE.midi_command(0xC0, 0xC0, pg_no, 0);
+            FMTONE.midi_command(0xC0, 0xC0, pg_no, 0);
             break;
 
           case 1:     //key #C  Program Change +1
             pg_no++;
             if (pg_no > MAX_DEFAULT_TONE - 1)
               pg_no = 0;
-            ENVTONE.midi_command(0xC0, 0xC0, pg_no, 0);
+            FMTONE.midi_command(0xC0, 0xC0, pg_no, 0);
             break;
 
           case 2:     //key D   octave--

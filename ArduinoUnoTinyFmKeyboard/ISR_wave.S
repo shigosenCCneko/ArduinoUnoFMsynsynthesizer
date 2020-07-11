@@ -1,17 +1,17 @@
 
 /*
- * PWM out PIN3
- * 
- */
+   PWM out PIN3
+
+*/
 #include <avr/io.h>
 #include <avr/interrupt.h>
-#include "envtone_def.h"
+#include "fmtone_def.h"
 
 .extern memtone
 .extern wave_tbl
 
 
-//#define USE_DAC 
+//#define USE_DAC
 #define TABLE_SIZE_MASK 0x3f
 
 
@@ -33,8 +33,12 @@
 #define MUL   13
 #define WAVE_TBLL 14
 #define WAVE_TBLH 15
+#define FB        16
+#define FBVAL     17
+#define  ENV_STEP 18
 
-#define SIZEOF_MEMTONE 16
+
+#define SIZEOF_MEMTONE 19
 
 #define F_ATK  1
 #define F_DECY 2
@@ -43,14 +47,18 @@
 
 #define TOTAL_OUT r18
 #define CHANNEL_OUT r19
+#define ZERO r21
 
 .section .data
 wait_cnt: .dc.b  0        //エンベロープのウェイト用カウンタ
 
+.section .bss
+.global memtone
+.balign 256
+memtone:  .ds.b  ( MAX_TONE * SIZEOF_MEMTONE )
+
 
 .section .text
-
-
 
 .global TIMER1_COMPA_vect
 TIMER1_COMPA_vect:
@@ -58,7 +66,7 @@ TIMER1_COMPA_vect:
   cli
   push r0
   push r1
-  in r0,_SFR_IO_ADDR(SREG)
+  in r0, _SFR_IO_ADDR(SREG)
   push r0
   push XL
   push XH
@@ -71,104 +79,97 @@ TIMER1_COMPA_vect:
   push TOTAL_OUT
   push CHANNEL_OUT
   push r20
+  push r21
+  clr r21
 
 
 
+  ldi XL, MAX_MIDITONE - 1     ; loop conter
+  clr TOTAL_OUT
 
-#ifdef USE_DAC
-  cbi 0x03, 0x02
-  ldi ZL, 0x36
-  out _SFR_IO_ADDR(SPDR), ZL 
-#endif
 
- ldi XL,MAX_REALTONE - 1     ;loop conter
- clr TOTAL_OUT
-
-  
-  lds r20,wait_cnt
+  lds r20, wait_cnt
   inc r20
-  andi r20 ,0x07 //8回に1回 subi 32 と同じ 
+  andi r20, 0x07 //8回に1回 subi 32 と同じ
   sts wait_cnt, r20
-//
-  ldi YL,lo8(memtone)
-  ldi YH,hi8(memtone)
+  //
+  ldi YL, lo8(memtone)
+  ldi YH, hi8(memtone)
 
 loop:
 
-  ldd ZL, Y+SIN_POSH     //Zレジスタを逆に使い　読み出しポインタ加算
-  ldd ZH, Y+SIN_POSL
-  ldd r16,Y+SIN_STEPH
-  ldd r17,Y+SIN_STEPL
-  add ZH,r17
-  adc ZL,r16
-  andi ZL,TABLE_SIZE_MASK
+  ldd ZL, Y + SIN_POSH   //Zレジスタを逆に使い　読み出しポインタ加算
+  ldd ZH, Y + SIN_POSL
+  ldd r16, Y + SIN_STEPH
+  ldd r17, Y + SIN_STEPL
+  add ZH, r17
+  adc ZL, r16
+  andi ZL, TABLE_SIZE_MASK
+  
   std Y + SIN_POSH, ZL
   std Y + SIN_POSL, ZH
 
-  clr ZH                  //Read sin table from tone pointer
 
-  ldd r16,Y+WAVE_TBLL
-  ldd r17,Y+WAVE_TBLH
-  add ZL,r16
-  adc ZH,r17
+  ldd r17,Y + FBVAL
+  add ZL,r17
+  andi ZL,TABLE_SIZE_MASK
   
-  //ld CHANNEL_OUT,Z
-  lpm CHANNEL_OUT,Z         //波形をPROGMEMで置いている場合
-    
+//  clr ZH                  //Read sin table from tone pointer
+//  
+//  ldd r16, Y + WAVE_TBLL
+//  ldd r17, Y + WAVE_TBLH
+//  add ZL, r16
+//  adc ZH, r17
+    ldd r16, Y + WAVE_TBLL
+    ldd ZH, Y + WAVE_TBLH
+    add ZL,r16
+    adc ZH,ZERO
+
+  lpm CHANNEL_OUT, Z        //波形をPROGMEMで置いている場合
 
 //------- envelope   --- r16  level  r17 env_cnt  ----------------------
-  ldd r16,Y + LEVEL
-//   cpi ,(0)
-   cp r20 ,XL
-   breq DO_ENVCHG
-   rjmp ENV_LEVEL   
 
- 
+
+  ldd r16,Y + LEVEL
+   cp r20,XL
+   brne ENV_LEVEL
+  
 DO_ENVCHG:
 
   ldd r17,Y + ENV_CNT
-  ldd XH,Y + ENV_STATE    //memtone[XL].env_state
+  ldd XH,Y + ENV_STEP
+  sub r17,XH
+//  brcs DO_ENVSTEP
+//  std Y + ENV_CNT , r17
+//  rjmp ENV_LEVEL
+  brcc ENV_LEVEL_WITHSAVE
+
+DO_ENVSTEP:
   
-  cpi XH,F_ATK
+  ldd XH,Y + ENV_STATE
+  ldi r17,250
+  
+  cpi XH, F_ATK
   breq ATK_FASE
-  
-  cpi XH,F_DECY
+
+  cpi XH, F_DECY
   breq DECY_FASE
-  
+
   cpi XH,F_SUS
   breq SUS_FASE
   
-//  cpi XH,F_REL
-//  breq REL_FASE
-//  rjmp ENV_LEVEL
-
-
+  
 REL_FASE:
-  ldd XH,Y+REL
-  sub r17,XH
-  brcs DO_REL_DEC
-  std Y+ENV_CNT,r17
-  rjmp ENV_LEVEL
-
-DO_REL_DEC:           
-  ldi r17,250
+  //ldi r17,250
   std Y+ENV_CNT,r17
   cpi r16,(0)
-  breq STOP_TONE 
+  breq STOP_TONE
   dec r16
   std Y+LEVEL,r16
-  rjmp ENV_LEVEL  
- 
-  
-DECY_FASE:
-  ldd XH,Y+DECY
-  sub r17,XH
-  brcs DO_DECY_DEC
-  std Y+ENV_CNT,r17
   rjmp ENV_LEVEL
 
-DO_DECY_DEC:
-  ldi r17,250
+ DECY_FASE:
+  //ldi r17,250
   std Y+ENV_CNT,r17
   dec r16
   std Y+LEVEL,r16
@@ -177,57 +178,41 @@ DO_DECY_DEC:
   brne ENV_LEVEL
   ldi r17,F_SUS         //set sustain fase
   std Y+ENV_STATE,r17
+  ldd XH,Y + SUS
+  std Y + ENV_STEP,XH
   rjmp ENV_LEVEL
-
 
 SUS_FASE:
-  ldd XH,Y+SUS
-  sub r17,XH
-  brcs DO_SUS_DEC
-  std Y+ENV_CNT,r17
-  rjmp ENV_LEVEL
-
-DO_SUS_DEC:
-  ldi r17,250
+  //ldi r17,250
   std Y+ENV_CNT,r17
   cpi r16,(0)
   breq STOP_TONE 
   dec r16
   std Y+LEVEL,r16
-  rjmp ENV_LEVEL
-
-
+  rjmp ENV_LEVEL 
 
 STOP_TONE:
-  clr r17
-  std Y+SIN_STEPL,r17
-  std Y+SIN_STEPH,r17 
+
+  std Y+SIN_STEPL,ZERO
+  std Y+SIN_STEPH,ZERO 
   rjmp ENV_LEVEL
 
-  
 
-DO_ATK_INC:
-  ldi r17,250
-  std Y+ENV_CNT,r17
+ATK_FASE:
+//ldi r17,250
+//  std Y+ENV_CNT,r17
   inc r16
   std Y+LEVEL,r16
   cpi r16,(31)
-  brne ENV_LEVEL
-  ldi r17,F_DECY       // set decay fase
-  std Y+ENV_STATE,r17
-  rjmp ENV_LEVEL
+  brne ENV_LEVEL_WITHSAVE
+ ldi r16,F_DECY       // set decay fase
+  std Y+ENV_STATE,r16
+  ldd XH,Y + DECY
+  std Y + ENV_STEP,XH
+ENV_LEVEL_WITHSAVE:
+  std Y+ENV_CNT,r17  //処理をパスしてきた時のsaveと共用する
 
-  
-ATK_FASE:
-  ldd XH,Y+ATK
-  sub r17,XH
-  brcs DO_ATK_INC
-  std Y + ENV_CNT,r17
-//  rjmp ENV_LEVEL    //このrjmpを減らすのに一番効果のあるのはAtkのここ
-  
-
-ENV_LEVEL:  
-
+ENV_LEVEL:
 /*
    subi CHANNEL_OUT,(-31);
   ldi ZL,64
@@ -238,204 +223,14 @@ ENV_LEVEL:
   //adc ZH,r0
   subi ZL,lo8(-(conv_vol))
   sbci ZH,hi8(-(conv_vol))
-  lpm CHANNEL_OUT,Z 
- 
- 
- 上の素直なコードをaとbに対し２回行っていたものを
+  lpm CHANNEL_OUT,Z
 
- *   (a * b )/31 を
- *   (( (a +1 )<<2 )*( (b + 1) <<1 ) >> 8) -1 で代用
- * 
- * 
- * 
+  上の素直なコードをaとbに対し２回行っていたものを
 
-
-ldd XH,Y + VOL
-inc r16
-lsl r16
-lsl r16
-inc XH
-lsl XH
-mul r16,XH
-dec r1
-subi CHANNEL_OUT,(-31)
-ldi ZL,64
-mul r1,ZL
-movw ZL,r0
-add ZL,CHANNEL_OUT
-  subi ZL,lo8(- (conv_vol)   )
-  sbci ZH,hi8(-(conv_vol))
-  lpm CHANNEL_OUT,Z 
-
-さらにコードのシフトを最適化した
-
-
+     (a * b )/31 を
+     (( (a +1 )<<2 )*( (b + 1) <<1 ) >> 8) -1 で代用
 */
-ldd XH,Y + VOL
-inc r16
-inc XH
-lsl XH
-mul r16,XH
-movw ZL,r0
-subi ZL,lo8(-(conv_vol -2))
-sbci ZH,hi8(-(conv_vol -2))
-andi ZL,0xc0              //int()
-
-subi CHANNEL_OUT,(-31)
-add ZL,CHANNEL_OUT
-
-  lpm CHANNEL_OUT,Z 
-
- 
-
-
-/*-----------------------------------------op2---------------*/
-OPERATOR2:
-    subi YL,lo8(-(SIZEOF_MEMTONE))
-    sbci YH,hi8(-(SIZEOF_MEMTONE))
-
-
-  ldd ZL, Y+SIN_POSH     //Zレジスタを逆に使い　読み出しポインタ加算
-  ldd ZH, Y+SIN_POSL
-  ldd r16,Y+SIN_STEPH
-  ldd r17,Y+SIN_STEPL
-  add ZH,r17
-  adc ZL,r16
-  andi ZL,TABLE_SIZE_MASK
-
-  std Y + SIN_POSH, ZL
-  std Y + SIN_POSL, ZH
-  
-  add ZL,CHANNEL_OUT
-  andi ZL,0x3f
-
-    clr ZH                  //Read sin table from tone pointer
-
-  ldd r16,Y+WAVE_TBLL
-  ldd r17,Y+WAVE_TBLH
-  add ZL,r16
-  adc ZH,r17
-  
-  //ld CHANNEL_OUT,Z
-  lpm CHANNEL_OUT,Z         //波形をPROGMEMで置いている場合
-    
-
-
-//------- envelope   --- r16  level  r17 env_cnt   r21 vol ----------------------
-  ldd r16,Y + LEVEL
-//   cpi r20,(0)
-   cp r20,XL
-   breq DO_ENVCHG2
-   rjmp ENV_LEVEL2  
-  
-DO_ENVCHG2:
-
-  ldd r17,Y + ENV_CNT
-  ldd XH,Y + ENV_STATE    //memtone[XL].env_state
-  
-  cpi XH,F_ATK
-  breq ATK_FASE2
-  
-  cpi XH,F_DECY
-  breq DECY_FASE2
-  
-  cpi XH,F_SUS
-  breq SUS_FASE2
-  
-//  cpi XH,F_REL
-//  breq REL_FASE2
-//  rjmp ENV_LEVEL
-
-
-REL_FASE2:
-  ldd XH,Y+REL
-  sub r17,XH
-  brcs DO_REL_DEC2
-  std Y+ENV_CNT,r17
-  rjmp ENV_LEVEL2
-
-DO_REL_DEC2:           
-  ldi r17,250
-  std Y+ENV_CNT,r17
-  cpi r16,(0)
-  breq STOP_TONE2 
-  dec r16
-  std Y+LEVEL,r16
-  rjmp ENV_LEVEL2  
-
-  
-  
-DECY_FASE2:
-  ldd XH,Y+DECY
-  sub r17,XH
-  brcs DO_DECY_DEC2
-  std Y+ENV_CNT,r17
-  rjmp ENV_LEVEL2
-
-DO_DECY_DEC2:
-  ldi r17,250
-  std Y+ENV_CNT,r17
-  dec r16
-  std Y+LEVEL,r16
-  ldd XH,Y+SUL   //compare sustain level
-  cp r16,XH
-  brne ENV_LEVEL2
-  ldi r17,F_SUS         //set sustain fase
-  std Y+ENV_STATE,r17
-  rjmp ENV_LEVEL2
-
-
-SUS_FASE2:
-  ldd XH,Y+SUS
-  sub r17,XH
-  brcs DO_SUS_DEC2
-  std Y+ENV_CNT,r17
-  rjmp ENV_LEVEL2
-
-DO_SUS_DEC2:
-  ldi r17,250
-  std Y+ENV_CNT,r17
-  cpi r16,(0)
-  breq STOP_TONE2 
-  dec r16
-  std Y+LEVEL,r16
-  rjmp ENV_LEVEL2
-
-
-
-STOP_TONE2:
-  clr r17
-  std Y+SIN_STEPL,r17
-  std Y+SIN_STEPH,r17 
-  rjmp ENV_LEVEL2
-
-  
-
-DO_ATK_INC2:
-  ldi r17,250
-  std Y+ENV_CNT,r17
-  inc r16
-  std Y+LEVEL,r16
-  cpi r16,(31)
-  brne ENV_LEVEL2
-  ldi r17,F_DECY       // set decay fase
-  std Y+ENV_STATE,r17
-  rjmp ENV_LEVEL2
-
-  
-ATK_FASE2:
-  ldd XH,Y+ATK
-  sub r17,XH
-  brcs DO_ATK_INC2
-  std Y + ENV_CNT,r17
-//  rjmp ENV_LEVELldd XH,Y + VOL
-
-  
-
-ENV_LEVEL2:  
-
-
-/*   ((a + 1)(b+1)/32 >> 5 ) + 1 */
+//
 //ldd XH,Y + VOL
 //inc r16
 //lsl r16
@@ -444,7 +239,6 @@ ENV_LEVEL2:
 //lsl XH
 //mul r16,XH
 //dec r1
-//
 //subi CHANNEL_OUT,(-31)
 //ldi ZL,64
 //mul r1,ZL
@@ -452,46 +246,195 @@ ENV_LEVEL2:
 //add ZL,CHANNEL_OUT
 //  subi ZL,lo8(- (conv_vol)   )
 //  sbci ZH,hi8(-(conv_vol))
-//  lpm CHANNEL_OUT,Z 
+//  lpm CHANNEL_OUT,Z
+
+//さらにコードのシフトを最適化した
 
 
-ldd XH,Y + VOL
-inc r16
-inc XH
-lsl XH
-mul r16,XH
-movw ZL,r0
-subi ZL,lo8(-(conv_vol -2))
-sbci ZH,hi8(-(conv_vol -2))
-andi ZL,0xc0
-subi CHANNEL_OUT,(-31)
 
-add ZL,CHANNEL_OUT
+  ldd XH, Y + VOL
+  inc r16
+  inc XH
+  lsl XH
+  mul r16, XH
+  movw ZL, r0
+  subi ZL, lo8(-(conv_vol - 2))
+  sbci ZH, hi8(-(conv_vol - 2))
+  andi ZL, 0xc0             //int()
+  
+  subi CHANNEL_OUT, (-31)
+  add ZL, CHANNEL_OUT
+  
+  lpm CHANNEL_OUT, Z
+/*------------------FeedBack-------------------------------*/
+  ldd r16, Y+FB
+/*
+ *   a * b /8
+ * 
+ */
+  fmulsu CHANNEL_OUT,r16
+  asr r0
+  asr r0
+  std Y + FBVAL,r0
 
-  lpm CHANNEL_OUT,Z 
+/*-----------------------------------------op2---------------*/
+OPERATOR2:
+  subi YL, lo8(-(SIZEOF_MEMTONE))
+  //sbci YH, hi8(-(SIZEOF_MEMTONE))   //.balign でそろえたので上位バイトは変化しない
+  
+  
+  ldd ZL, Y + SIN_POSH   //Zレジスタを逆に使い　読み出しポインタ加算
+  ldd ZH, Y + SIN_POSL
+  ldd r16, Y + SIN_STEPH
+  ldd r17, Y + SIN_STEPL
+  
+  add ZH, r17
+  adc ZL, r16
+  
+  andi ZL, TABLE_SIZE_MASK
+
+  std Y + SIN_POSH, ZL
+  std Y + SIN_POSL, ZH
+  
+  add ZL, CHANNEL_OUT
+  andi ZL, TABLE_SIZE_MASK
+  
+//  clr ZH                  //Read sin table from tone pointer
+//  ldd r16, Y + WAVE_TBLL
+//  ldd r17, Y + WAVE_TBLH
+//  add ZL, r16
+//  adc ZH, r17
+   ldd r16, Y + WAVE_TBLL
+   ldd ZH, Y + WAVE_TBLH
+   add ZL,r16
+   adc ZH,ZERO
+  
+  //ld CHANNEL_OUT,Z
+  lpm CHANNEL_OUT, Z        //波形をPROGMEMで置いている場合
+
+//------- envelope   --- r16  level  r17 env_cnt   r21 vol ----------------------
+
+  ldd r16,Y + LEVEL
+  cp r20,XL
+  brne ENV_LEVEL2
+//   breq DO_ENVCHG2
+//   rjmp ENV_LEVEL2   
+  
+DO_ENVCHG2:
+
+  ldd r17,Y + ENV_CNT
+  ldd XH,Y + ENV_STEP
+  sub r17,XH
+//  brcs DO_ENVSTEP2
+//  std Y + ENV_CNT , r17
+//  rjmp ENV_LEVEL2
+  brcc ENV_LEVEL2_WITHSAVE
+  
+
+DO_ENVSTEP2:
+  ldd XH,Y + ENV_STATE
+  ldi r17,250
+  
+  cpi XH, F_ATK
+  breq ATK_FASE2
+
+  cpi XH, F_DECY
+  breq DECY_FASE2
+
+  cpi XH,F_SUS
+  breq SUS_FASE2
+  
+  
+REL_FASE2:
+//  ldi r17,250
+  std Y+ENV_CNT,r17
+  cpi r16,(0)
+  breq STOP_TONE2
+  dec r16
+  std Y+LEVEL,r16
+  rjmp ENV_LEVEL2
+
+DECY_FASE2:
+//  ldi r17,250
+  std Y+ENV_CNT,r17
+  dec r16
+  std Y+LEVEL,r16
+  ldd XH,Y+SUL   //compare sustain level
+  cp r16,XH
+  brne ENV_LEVEL2
+  ldi r17,F_SUS         //set sustain fase
+  std Y+ENV_STATE,r17
+  ldd XH,Y + SUS
+  std Y + ENV_STEP,XH
+  rjmp ENV_LEVEL2
+
+SUS_FASE2:
+//  ldi r17,250
+  std Y+ENV_CNT,r17
+  cpi r16,(0)
+  breq STOP_TONE2 
+  dec r16
+  std Y+LEVEL,r16
+  rjmp ENV_LEVEL2 
+
+STOP_TONE2:
+
+  std Y+SIN_STEPL,ZERO
+  std Y+SIN_STEPH,ZERO 
+  rjmp ENV_LEVEL2
+
+
+ATK_FASE2:
+//  ldi r17,250
+//  std Y+ENV_CNT,r17  //書き込みを共用するため最後に移動
+  inc r16
+  std Y+LEVEL,r16
+  cpi r16,(31)
+  brne ENV_LEVEL2_WITHSAVE
+ ldi r16,F_DECY       // set decay fase
+  std Y+ENV_STATE,r16
+  ldd XH,Y + DECY
+  std Y + ENV_STEP,XH
+ENV_LEVEL2_WITHSAVE:
+  std Y+ENV_CNT,r17  //処理をパスしてきた時のsaveと共用する
+
+
+
+ENV_LEVEL2:
+
+  ldd XH, Y + VOL
+  inc r16
+  inc XH
+  lsl XH
+  mul r16, XH
+  movw ZL, r0
+  subi ZL, lo8(-(conv_vol - 2 ))
+  sbci ZH, hi8(-(conv_vol - 2 ))
+  andi ZL, 0xc0
+  subi CHANNEL_OUT, (-31)
+  
+  add ZL, CHANNEL_OUT
+  lpm CHANNEL_OUT, Z
+
+
 
 
 CHANNEL_END:
 
 
-//lsl CHANNEL_OUT          //増幅？？
-  add TOTAL_OUT,CHANNEL_OUT
+  add TOTAL_OUT, CHANNEL_OUT
 
 
-    subi YL,lo8(-(SIZEOF_MEMTONE))
-    sbci YH,hi8(-(SIZEOF_MEMTONE))
-
-  subi XL,(1)
+  subi YL, lo8(-(SIZEOF_MEMTONE))
+  //sbci YH, hi8(-(SIZEOF_MEMTONE))     //.balign 64でそろえたので上位バイトは変化しない
+  
+  subi XL, (1)
   brcs  endloop
   rjmp loop
-endloop:
+  endloop:
+  
+  subi TOTAL_OUT, 0x80
 
-    subi TOTAL_OUT,0x80
-
-
- #ifdef USE_DAC
-  out _SFR_IO_ADDR(SPDR), TOTAL_OUT
- #endif
 
 #if (PWM_PIN == 3)
   sts OCR2B, TOTAL_OUT
@@ -504,10 +447,11 @@ endloop:
 #endif
 
 
-//.rept 30
+//.rept 5
 //nop
 //.endr
 
+  pop r21
   pop r20
   pop CHANNEL_OUT
   pop TOTAL_OUT
@@ -523,9 +467,7 @@ endloop:
   out _SFR_IO_ADDR(SREG), r0
   pop r1
   pop r0
-#ifdef USE_DAC  
-  sbi 0x03, 0x02;
-#endif  
+  
   sei
   reti
 
@@ -533,40 +475,169 @@ endloop:
 
 
 // 除算テーブル
-.balign 256
+.balign 64
 .global conv_vol   //アドレス計算高速化の為 conv_vol[64][32]
-conv_vol: 
-.dc.b    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,0
-.dc.b  -1, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  1,0
-.dc.b  -2, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  2,0
-.dc.b  -3, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  3,0
-.dc.b  -4, -3, -3, -3, -3, -3, -3, -3, -2, -2, -2, -2, -2, -2, -2, -2, -1, -1, -1, -1, -1, -1, -1, -1, -0, -0, -0, -0, -0, -0, -0,  0,  0,  0,  0,  0,  0,  0,  0,  1,  1,  1,  1,  1,  1,  1,  1,  2,  2,  2,  2,  2,  2,  2,  2,  3,  3,  3,  3,  3,  3,  3,  4,0
-.dc.b  -5, -4, -4, -4, -4, -4, -4, -3, -3, -3, -3, -3, -3, -2, -2, -2, -2, -2, -2, -1, -1, -1, -1, -1, -1, -0, -0, -0, -0, -0, -0,  0,  0,  0,  0,  0,  0,  0,  1,  1,  1,  1,  1,  1,  2,  2,  2,  2,  2,  2,  3,  3,  3,  3,  3,  3,  4,  4,  4,  4,  4,  4,  5,0
-.dc.b  -6, -5, -5, -5, -5, -5, -4, -4, -4, -4, -4, -3, -3, -3, -3, -3, -2, -2, -2, -2, -2, -1, -1, -1, -1, -1, -0, -0, -0, -0, -0,  0,  0,  0,  0,  0,  0,  1,  1,  1,  1,  1,  2,  2,  2,  2,  2,  3,  3,  3,  3,  3,  4,  4,  4,  4,  4,  5,  5,  5,  5,  5,  6,0
-.dc.b  -7, -6, -6, -6, -6, -5, -5, -5, -5, -4, -4, -4, -4, -4, -3, -3, -3, -3, -2, -2, -2, -2, -2, -1, -1, -1, -1, -0, -0, -0, -0,  0,  0,  0,  0,  0,  1,  1,  1,  1,  2,  2,  2,  2,  2,  3,  3,  3,  3,  4,  4,  4,  4,  4,  5,  5,  5,  5,  6,  6,  6,  6,  7,0
-.dc.b  -8, -7, -7, -7, -6, -6, -6, -6, -5, -5, -5, -5, -4, -4, -4, -4, -3, -3, -3, -3, -2, -2, -2, -2, -1, -1, -1, -1, -0, -0, -0,  0,  0,  0,  0,  1,  1,  1,  1,  2,  2,  2,  2,  3,  3,  3,  3,  4,  4,  4,  4,  5,  5,  5,  5,  6,  6,  6,  6,  7,  7,  7,  8,0
-.dc.b  -9, -8, -8, -8, -7, -7, -7, -6, -6, -6, -6, -5, -5, -5, -4, -4, -4, -4, -3, -3, -3, -2, -2, -2, -2, -1, -1, -1, -0, -0, -0,  0,  0,  0,  0,  1,  1,  1,  2,  2,  2,  2,  3,  3,  3,  4,  4,  4,  4,  5,  5,  5,  6,  6,  6,  6,  7,  7,  7,  8,  8,  8,  9,0
-.dc.b -10, -9, -9, -9, -8, -8, -8, -7, -7, -7, -6, -6, -6, -5, -5, -5, -4, -4, -4, -3, -3, -3, -2, -2, -2, -1, -1, -1, -0, -0, -0,  0,  0,  0,  0,  1,  1,  1,  2,  2,  2,  3,  3,  3,  4,  4,  4,  5,  5,  5,  6,  6,  6,  7,  7,  7,  8,  8,  8,  9,  9,  9, 10,0
-.dc.b -11,-10,-10, -9, -9, -9, -8, -8, -8, -7, -7, -7, -6, -6, -6, -5, -5, -4, -4, -4, -3, -3, -3, -2, -2, -2, -1, -1, -1, -0, -0,  0,  0,  0,  1,  1,  1,  2,  2,  2,  3,  3,  3,  4,  4,  4,  5,  5,  6,  6,  6,  7,  7,  7,  8,  8,  8,  9,  9,  9, 10, 10, 11,0
-.dc.b -12,-11,-11,-10,-10,-10, -9, -9, -8, -8, -8, -7, -7, -6, -6, -6, -5, -5, -5, -4, -4, -3, -3, -3, -2, -2, -1, -1, -1, -0, -0,  0,  0,  0,  1,  1,  1,  2,  2,  3,  3,  3,  4,  4,  5,  5,  5,  6,  6,  6,  7,  7,  8,  8,  8,  9,  9, 10, 10, 10, 11, 11, 12,0
-.dc.b -13,-12,-12,-11,-11,-10,-10,-10, -9, -9, -8, -8, -7, -7, -7, -6, -6, -5, -5, -5, -4, -4, -3, -3, -2, -2, -2, -1, -1, -0, -0,  0,  0,  0,  1,  1,  2,  2,  2,  3,  3,  4,  4,  5,  5,  5,  6,  6,  7,  7,  7,  8,  8,  9,  9, 10, 10, 10, 11, 11, 12, 12, 13,0
-.dc.b -14,-13,-13,-12,-12,-11,-11,-10,-10, -9, -9, -9, -8, -8, -7, -7, -6, -6, -5, -5, -4, -4, -4, -3, -3, -2, -2, -1, -1, -0, -0,  0,  0,  0,  1,  1,  2,  2,  3,  3,  4,  4,  4,  5,  5,  6,  6,  7,  7,  8,  8,  9,  9,  9, 10, 10, 11, 11, 12, 12, 13, 13, 14,0
-.dc.b -15,-14,-14,-13,-13,-12,-12,-11,-11,-10,-10, -9, -9, -8, -8, -7, -7, -6, -6, -5, -5, -4, -4, -3, -3, -2, -2, -1, -1, -0, -0,  0,  0,  0,  1,  1,  2,  2,  3,  3,  4,  4,  5,  5,  6,  6,  7,  7,  8,  8,  9,  9, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15,0
-.dc.b -16,-15,-14,-14,-13,-13,-12,-12,-11,-11,-10,-10, -9, -9, -8, -8, -7, -7, -6, -6, -5, -5, -4, -4, -3, -3, -2, -2, -1, -1, -0,  0,  0,  1,  1,  2,  2,  3,  3,  4,  4,  5,  5,  6,  6,  7,  7,  8,  8,  9,  9, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15, 16,0
-.dc.b -17,-16,-15,-15,-14,-14,-13,-13,-12,-12,-11,-10,-10, -9, -9, -8, -8, -7, -7, -6, -6, -5, -4, -4, -3, -3, -2, -2, -1, -1, -0,  0,  0,  1,  1,  2,  2,  3,  3,  4,  4,  5,  6,  6,  7,  7,  8,  8,  9,  9, 10, 10, 11, 12, 12, 13, 13, 14, 14, 15, 15, 16, 17,0
-.dc.b -18,-17,-16,-16,-15,-15,-14,-13,-13,-12,-12,-11,-11,-10, -9, -9, -8, -8, -7, -6, -6, -5, -5, -4, -4, -3, -2, -2, -1, -1, -0,  0,  0,  1,  1,  2,  2,  3,  4,  4,  5,  5,  6,  6,  7,  8,  8,  9,  9, 10, 11, 11, 12, 12, 13, 13, 14, 15, 15, 16, 16, 17, 18,0
-.dc.b -19,-18,-17,-17,-16,-15,-15,-14,-14,-13,-12,-12,-11,-11,-10, -9, -9, -8, -7, -7, -6, -6, -5, -4, -4, -3, -3, -2, -1, -1, -0,  0,  0,  1,  1,  2,  3,  3,  4,  4,  5,  6,  6,  7,  7,  8,  9,  9, 10, 11, 11, 12, 12, 13, 14, 14, 15, 15, 16, 17, 17, 18, 19,0
-.dc.b -20,-19,-18,-18,-17,-16,-16,-15,-14,-14,-13,-12,-12,-11,-10,-10, -9, -9, -8, -7, -7, -6, -5, -5, -4, -3, -3, -2, -1, -1, -0,  0,  0,  1,  1,  2,  3,  3,  4,  5,  5,  6,  7,  7,  8,  9,  9, 10, 10, 11, 12, 12, 13, 14, 14, 15, 16, 16, 17, 18, 18, 19, 20,0
-.dc.b -21,-20,-19,-18,-18,-17,-16,-16,-15,-14,-14,-13,-12,-12,-11,-10,-10, -9, -8, -8, -7, -6, -6, -5, -4, -4, -3, -2, -2, -1, -0,  0,  0,  1,  2,  2,  3,  4,  4,  5,  6,  6,  7,  8,  8,  9, 10, 10, 11, 12, 12, 13, 14, 14, 15, 16, 16, 17, 18, 18, 19, 20, 21,0
-.dc.b -22,-21,-20,-19,-19,-18,-17,-17,-16,-15,-14,-14,-13,-12,-12,-11,-10, -9, -9, -8, -7, -7, -6, -5, -4, -4, -3, -2, -2, -1, -0,  0,  0,  1,  2,  2,  3,  4,  4,  5,  6,  7,  7,  8,  9,  9, 10, 11, 12, 12, 13, 14, 14, 15, 16, 17, 17, 18, 19, 19, 20, 21, 22,0
-.dc.b -23,-22,-21,-20,-20,-19,-18,-17,-17,-16,-15,-14,-14,-13,-12,-11,-11,-10, -9, -8, -8, -7, -6, -5, -5, -4, -3, -2, -2, -1, -0,  0,  0,  1,  2,  2,  3,  4,  5,  5,  6,  7,  8,  8,  9, 10, 11, 11, 12, 13, 14, 14, 15, 16, 17, 17, 18, 19, 20, 20, 21, 22, 23,0
-.dc.b -24,-23,-22,-21,-20,-20,-19,-18,-17,-17,-16,-15,-14,-13,-13,-12,-11,-10,-10, -9, -8, -7, -6, -6, -5, -4, -3, -3, -2, -1, -0,  0,  0,  1,  2,  3,  3,  4,  5,  6,  6,  7,  8,  9, 10, 10, 11, 12, 13, 13, 14, 15, 16, 17, 17, 18, 19, 20, 20, 21, 22, 23, 24,0
-.dc.b -25,-24,-23,-22,-21,-20,-20,-19,-18,-17,-16,-16,-15,-14,-13,-12,-12,-11,-10, -9, -8, -8, -7, -6, -5, -4, -4, -3, -2, -1, -0,  0,  0,  1,  2,  3,  4,  4,  5,  6,  7,  8,  8,  9, 10, 11, 12, 12, 13, 14, 15, 16, 16, 17, 18, 19, 20, 20, 21, 22, 23, 24, 25,0
-.dc.b -26,-25,-24,-23,-22,-21,-20,-20,-19,-18,-17,-16,-15,-15,-14,-13,-12,-11,-10,-10, -9, -8, -7, -6, -5, -5, -4, -3, -2, -1, -0,  0,  0,  1,  2,  3,  4,  5,  5,  6,  7,  8,  9, 10, 10, 11, 12, 13, 14, 15, 15, 16, 17, 18, 19, 20, 20, 21, 22, 23, 24, 25, 26,0
-.dc.b -27,-26,-25,-24,-23,-22,-21,-20,-20,-19,-18,-17,-16,-15,-14,-13,-13,-12,-11,-10, -9, -8, -7, -6, -6, -5, -4, -3, -2, -1, -0,  0,  0,  1,  2,  3,  4,  5,  6,  6,  7,  8,  9, 10, 11, 12, 13, 13, 14, 15, 16, 17, 18, 19, 20, 20, 21, 22, 23, 24, 25, 26, 27,0
-.dc.b -28,-27,-26,-25,-24,-23,-22,-21,-20,-19,-18,-18,-17,-16,-15,-14,-13,-12,-11,-10, -9, -9, -8, -7, -6, -5, -4, -3, -2, -1, -0,  0,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28,0
-.dc.b -29,-28,-27,-26,-25,-24,-23,-22,-21,-20,-19,-18,-17,-16,-15,-14,-14,-13,-12,-11,-10, -9, -8, -7, -6, -5, -4, -3, -2, -1, -0,  0,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,0
-.dc.b -30,-29,-28,-27,-26,-25,-24,-23,-22,-21,-20,-19,-18,-17,-16,-15,-14,-13,-12,-11,-10, -9, -8, -7, -6, -5, -4, -3, -2, -1, -0,  0,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,0
-.dc.b -31,-30,-29,-28,-27,-26,-25,-24,-23,-22,-21,-20,-19,-18,-17,-16,-15,-14,-13,-12,-11,-10, -9, -8, -7, -6, -5, -4, -3, -2, -1,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,0
+conv_vol:
+.dc.b    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, 0
+.dc.b  - 1, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  1, 0
+.dc.b  - 2, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  2, 0
+.dc.b  - 3, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -0, -0, -0, -0, -0, -0, -0, -0, -0, -0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  3, 0
+.dc.b  - 4, -3, -3, -3, -3, -3, -3, -3, -2, -2, -2, -2, -2, -2, -2, -2, -1, -1, -1, -1, -1, -1, -1, -1, -0, -0, -0, -0, -0, -0, -0,  0,  0,  0,  0,  0,  0,  0,  0,  1,  1,  1,  1,  1,  1,  1,  1,  2,  2,  2,  2,  2,  2,  2,  2,  3,  3,  3,  3,  3,  3,  3,  4, 0
+.dc.b  - 5, -4, -4, -4, -4, -4, -4, -3, -3, -3, -3, -3, -3, -2, -2, -2, -2, -2, -2, -1, -1, -1, -1, -1, -1, -0, -0, -0, -0, -0, -0,  0,  0,  0,  0,  0,  0,  0,  1,  1,  1,  1,  1,  1,  2,  2,  2,  2,  2,  2,  3,  3,  3,  3,  3,  3,  4,  4,  4,  4,  4,  4,  5, 0
+.dc.b  - 6, -5, -5, -5, -5, -5, -4, -4, -4, -4, -4, -3, -3, -3, -3, -3, -2, -2, -2, -2, -2, -1, -1, -1, -1, -1, -0, -0, -0, -0, -0,  0,  0,  0,  0,  0,  0,  1,  1,  1,  1,  1,  2,  2,  2,  2,  2,  3,  3,  3,  3,  3,  4,  4,  4,  4,  4,  5,  5,  5,  5,  5,  6, 0
+.dc.b  - 7, -6, -6, -6, -6, -5, -5, -5, -5, -4, -4, -4, -4, -4, -3, -3, -3, -3, -2, -2, -2, -2, -2, -1, -1, -1, -1, -0, -0, -0, -0,  0,  0,  0,  0,  0,  1,  1,  1,  1,  2,  2,  2,  2,  2,  3,  3,  3,  3,  4,  4,  4,  4,  4,  5,  5,  5,  5,  6,  6,  6,  6,  7, 0
+.dc.b  - 8, -7, -7, -7, -6, -6, -6, -6, -5, -5, -5, -5, -4, -4, -4, -4, -3, -3, -3, -3, -2, -2, -2, -2, -1, -1, -1, -1, -0, -0, -0,  0,  0,  0,  0,  1,  1,  1,  1,  2,  2,  2,  2,  3,  3,  3,  3,  4,  4,  4,  4,  5,  5,  5,  5,  6,  6,  6,  6,  7,  7,  7,  8, 0
+.dc.b  - 9, -8, -8, -8, -7, -7, -7, -6, -6, -6, -6, -5, -5, -5, -4, -4, -4, -4, -3, -3, -3, -2, -2, -2, -2, -1, -1, -1, -0, -0, -0,  0,  0,  0,  0,  1,  1,  1,  2,  2,  2,  2,  3,  3,  3,  4,  4,  4,  4,  5,  5,  5,  6,  6,  6,  6,  7,  7,  7,  8,  8,  8,  9, 0
+.dc.b - 10, -9, -9, -9, -8, -8, -8, -7, -7, -7, -6, -6, -6, -5, -5, -5, -4, -4, -4, -3, -3, -3, -2, -2, -2, -1, -1, -1, -0, -0, -0,  0,  0,  0,  0,  1,  1,  1,  2,  2,  2,  3,  3,  3,  4,  4,  4,  5,  5,  5,  6,  6,  6,  7,  7,  7,  8,  8,  8,  9,  9,  9, 10, 0
+.dc.b - 11, -10, -10, -9, -9, -9, -8, -8, -8, -7, -7, -7, -6, -6, -6, -5, -5, -4, -4, -4, -3, -3, -3, -2, -2, -2, -1, -1, -1, -0, -0,  0,  0,  0,  1,  1,  1,  2,  2,  2,  3,  3,  3,  4,  4,  4,  5,  5,  6,  6,  6,  7,  7,  7,  8,  8,  8,  9,  9,  9, 10, 10, 11, 0
+.dc.b - 12, -11, -11, -10, -10, -10, -9, -9, -8, -8, -8, -7, -7, -6, -6, -6, -5, -5, -5, -4, -4, -3, -3, -3, -2, -2, -1, -1, -1, -0, -0,  0,  0,  0,  1,  1,  1,  2,  2,  3,  3,  3,  4,  4,  5,  5,  5,  6,  6,  6,  7,  7,  8,  8,  8,  9,  9, 10, 10, 10, 11, 11, 12, 0
+.dc.b - 13, -12, -12, -11, -11, -10, -10, -10, -9, -9, -8, -8, -7, -7, -7, -6, -6, -5, -5, -5, -4, -4, -3, -3, -2, -2, -2, -1, -1, -0, -0,  0,  0,  0,  1,  1,  2,  2,  2,  3,  3,  4,  4,  5,  5,  5,  6,  6,  7,  7,  7,  8,  8,  9,  9, 10, 10, 10, 11, 11, 12, 12, 13, 0
+.dc.b - 14, -13, -13, -12, -12, -11, -11, -10, -10, -9, -9, -9, -8, -8, -7, -7, -6, -6, -5, -5, -4, -4, -4, -3, -3, -2, -2, -1, -1, -0, -0,  0,  0,  0,  1,  1,  2,  2,  3,  3,  4,  4,  4,  5,  5,  6,  6,  7,  7,  8,  8,  9,  9,  9, 10, 10, 11, 11, 12, 12, 13, 13, 14, 0
+.dc.b - 15, -14, -14, -13, -13, -12, -12, -11, -11, -10, -10, -9, -9, -8, -8, -7, -7, -6, -6, -5, -5, -4, -4, -3, -3, -2, -2, -1, -1, -0, -0,  0,  0,  0,  1,  1,  2,  2,  3,  3,  4,  4,  5,  5,  6,  6,  7,  7,  8,  8,  9,  9, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15, 0
+.dc.b - 16, -15, -14, -14, -13, -13, -12, -12, -11, -11, -10, -10, -9, -9, -8, -8, -7, -7, -6, -6, -5, -5, -4, -4, -3, -3, -2, -2, -1, -1, -0,  0,  0,  1,  1,  2,  2,  3,  3,  4,  4,  5,  5,  6,  6,  7,  7,  8,  8,  9,  9, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15, 16, 0
+.dc.b - 17, -16, -15, -15, -14, -14, -13, -13, -12, -12, -11, -10, -10, -9, -9, -8, -8, -7, -7, -6, -6, -5, -4, -4, -3, -3, -2, -2, -1, -1, -0,  0,  0,  1,  1,  2,  2,  3,  3,  4,  4,  5,  6,  6,  7,  7,  8,  8,  9,  9, 10, 10, 11, 12, 12, 13, 13, 14, 14, 15, 15, 16, 17, 0
+.dc.b - 18, -17, -16, -16, -15, -15, -14, -13, -13, -12, -12, -11, -11, -10, -9, -9, -8, -8, -7, -6, -6, -5, -5, -4, -4, -3, -2, -2, -1, -1, -0,  0,  0,  1,  1,  2,  2,  3,  4,  4,  5,  5,  6,  6,  7,  8,  8,  9,  9, 10, 11, 11, 12, 12, 13, 13, 14, 15, 15, 16, 16, 17, 18, 0
+.dc.b - 19, -18, -17, -17, -16, -15, -15, -14, -14, -13, -12, -12, -11, -11, -10, -9, -9, -8, -7, -7, -6, -6, -5, -4, -4, -3, -3, -2, -1, -1, -0,  0,  0,  1,  1,  2,  3,  3,  4,  4,  5,  6,  6,  7,  7,  8,  9,  9, 10, 11, 11, 12, 12, 13, 14, 14, 15, 15, 16, 17, 17, 18, 19, 0
+.dc.b - 20, -19, -18, -18, -17, -16, -16, -15, -14, -14, -13, -12, -12, -11, -10, -10, -9, -9, -8, -7, -7, -6, -5, -5, -4, -3, -3, -2, -1, -1, -0,  0,  0,  1,  1,  2,  3,  3,  4,  5,  5,  6,  7,  7,  8,  9,  9, 10, 10, 11, 12, 12, 13, 14, 14, 15, 16, 16, 17, 18, 18, 19, 20, 0
+.dc.b - 21, -20, -19, -18, -18, -17, -16, -16, -15, -14, -14, -13, -12, -12, -11, -10, -10, -9, -8, -8, -7, -6, -6, -5, -4, -4, -3, -2, -2, -1, -0,  0,  0,  1,  2,  2,  3,  4,  4,  5,  6,  6,  7,  8,  8,  9, 10, 10, 11, 12, 12, 13, 14, 14, 15, 16, 16, 17, 18, 18, 19, 20, 21, 0
+.dc.b - 22, -21, -20, -19, -19, -18, -17, -17, -16, -15, -14, -14, -13, -12, -12, -11, -10, -9, -9, -8, -7, -7, -6, -5, -4, -4, -3, -2, -2, -1, -0,  0,  0,  1,  2,  2,  3,  4,  4,  5,  6,  7,  7,  8,  9,  9, 10, 11, 12, 12, 13, 14, 14, 15, 16, 17, 17, 18, 19, 19, 20, 21, 22, 0
+.dc.b - 23, -22, -21, -20, -20, -19, -18, -17, -17, -16, -15, -14, -14, -13, -12, -11, -11, -10, -9, -8, -8, -7, -6, -5, -5, -4, -3, -2, -2, -1, -0,  0,  0,  1,  2,  2,  3,  4,  5,  5,  6,  7,  8,  8,  9, 10, 11, 11, 12, 13, 14, 14, 15, 16, 17, 17, 18, 19, 20, 20, 21, 22, 23, 0
+.dc.b - 24, -23, -22, -21, -20, -20, -19, -18, -17, -17, -16, -15, -14, -13, -13, -12, -11, -10, -10, -9, -8, -7, -6, -6, -5, -4, -3, -3, -2, -1, -0,  0,  0,  1,  2,  3,  3,  4,  5,  6,  6,  7,  8,  9, 10, 10, 11, 12, 13, 13, 14, 15, 16, 17, 17, 18, 19, 20, 20, 21, 22, 23, 24, 0
+.dc.b - 25, -24, -23, -22, -21, -20, -20, -19, -18, -17, -16, -16, -15, -14, -13, -12, -12, -11, -10, -9, -8, -8, -7, -6, -5, -4, -4, -3, -2, -1, -0,  0,  0,  1,  2,  3,  4,  4,  5,  6,  7,  8,  8,  9, 10, 11, 12, 12, 13, 14, 15, 16, 16, 17, 18, 19, 20, 20, 21, 22, 23, 24, 25, 0
+.dc.b - 26, -25, -24, -23, -22, -21, -20, -20, -19, -18, -17, -16, -15, -15, -14, -13, -12, -11, -10, -10, -9, -8, -7, -6, -5, -5, -4, -3, -2, -1, -0,  0,  0,  1,  2,  3,  4,  5,  5,  6,  7,  8,  9, 10, 10, 11, 12, 13, 14, 15, 15, 16, 17, 18, 19, 20, 20, 21, 22, 23, 24, 25, 26, 0
+.dc.b - 27, -26, -25, -24, -23, -22, -21, -20, -20, -19, -18, -17, -16, -15, -14, -13, -13, -12, -11, -10, -9, -8, -7, -6, -6, -5, -4, -3, -2, -1, -0,  0,  0,  1,  2,  3,  4,  5,  6,  6,  7,  8,  9, 10, 11, 12, 13, 13, 14, 15, 16, 17, 18, 19, 20, 20, 21, 22, 23, 24, 25, 26, 27, 0
+.dc.b - 28, -27, -26, -25, -24, -23, -22, -21, -20, -19, -18, -18, -17, -16, -15, -14, -13, -12, -11, -10, -9, -9, -8, -7, -6, -5, -4, -3, -2, -1, -0,  0,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 0
+.dc.b - 29, -28, -27, -26, -25, -24, -23, -22, -21, -20, -19, -18, -17, -16, -15, -14, -14, -13, -12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, -0,  0,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 0
+.dc.b - 30, -29, -28, -27, -26, -25, -24, -23, -22, -21, -20, -19, -18, -17, -16, -15, -14, -13, -12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, -0,  0,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 0
+.dc.b - 31, -30, -29, -28, -27, -26, -25, -24, -23, -22, -21, -20, -19, -18, -17, -16, -15, -14, -13, -12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 0
 
 
+/*
+   速度求めて改変し過ぎたので同等のCコードイメージ（テスト未)
+      
+
+#define TABLE_SIZE_MASK 0x3f
+
+struct MemTone {
+  private:
+    uint16_t sin_pos;
+    uint16_t sin_step;
+   uint8_t  tl;
+
+    uint8_t env_state;
+    uint8_t env_cnt;
+
+    uint8_t atk;
+    uint8_t decy;
+    uint8_t sul;
+    uint8_t sus;
+    uint8_t rel;
+    uint8_t level;
+    uint8_t mul;
+    uint16_t wave_tbl;
+    uint8_t fb;
+    uint8_t fb_val;
+    uint8_t env_step;
+} memtone[MAX_TONE * sizeof(MemTone)];
+
+uint8_t wait_cnt = 0;
+
+
+ISR(TIMER_COMPA_vect){
+  uint16_t read_pos16;
+  uint8_t  read_pos8;
+  uint8_t *wave_table;
+  uint8_t channel_out;
+  uint8_t env_level;
+  
+  wait_cnt++;
+  wait_cnt &= 0x7;   // 最大7音
+  
+  
+  for(uint8_t ch, ch < MAX_MIDITONE,ch++){
+  read_pos16 = memtone[ch].sin_pos;    // 16bit固定小数点(8.8)形式
+  red_pos16 += memtone[ch].sin_step;
+  memtone[ch].sin_pos = read_pos16;
+  read_pos8 = read_pos16 >>8;          //int()
+
+  // feed back 
+  read_pos8 += memtone[ch].fb_val;
+  read_pos8 &= TABLE_SIZE_MASK;
+
+  wave_table = memtone[ch].wave_tbl;
+  channel_out = wave_table[read_pos8];
+
+  env_level = memtone[ch].level;
+  
+  if(wait_cnt == ch){
+    uint8_t cnt;
+    uint8_t step;
+    cnt = memtone[ch].env_cnt;
+    step = memtone[ch].env_step;
+    cnt = cnt -step;
+    memtone[ch].env_cnt = cnt;
+    if(cnt < 0){
+    memtone[ch].env_cnt = 250;
+    
+    switch(memtone[ch].env_state){
+      
+    case F_ATK:
+      env_level++;
+      if(env_level == 31){
+      memtone[ch].env_state = F_DECY;
+      }
+      memtone[ch].level = env_level;
+      break;
+
+    case F_DECY:
+      env_level--;
+      if(env_level == memtone[ch].sul){
+      memtone[ch].env_state = F_SUS;
+      }
+      memtone[ch].level = env_level;
+      break;
+      
+    case F_SUS:
+      env_level--;
+      if(env_level == 0){
+      memtone[ch].sin_step = 0;  //stepが0なので音は鳴らない
+      }
+      memtone[ch].level = env_level;
+      break;
+
+    case F_REL:
+      env_level--;
+      if(env_level == 0){
+      memtone[ch].sin_step = 0;
+      }
+      memtone[ch].level = env_level;
+      break;
+
+    default:
+      break;
+    }
+    }
+
+
+  }
+  channel_out = channel_out * memtone[ch].vol * env_level / 31 / 31;
+  
+  //---------------  OP2  --------------------------//
+  ch++;
+  read_pos16 = memtone[ch].sin_pos;    // 16bit固定小数点(8.8)形式
+  red_pos16 += memtone[ch].sin_step;
+  memtone[ch].sin_pos = read_pos16;
+  read_pos8 = read_pos16 >>8;          //int()
+
+  // feed back 
+  read_pos8 += channel_out;      //前OPの出力で読み出しポインタを変更
+  read_pos8 &= TABLE_SIZE_MASK;
+
+  //----------後は同じ----------------------
+  //--------------------------------------
+  }
+}
+
+
+ 
+ */
