@@ -11,8 +11,8 @@ Timer1を使いサンプル数64の波形データを2オペレータのFM音源
 
 ### FM音源
 2オペレータ直列アルゴリズムのみ  
-FeedBackは処理時間の関係で断念しました  
-代わりに基本波形を6種類選べます。
+~~FeedBackは処理時間の関係で断念しました  
+代わりに~~基本波形を6種類選べます。
 - Sin波
 -三角波
 -鋸波
@@ -79,8 +79,8 @@ Timer0を使用するとdelay()等の時間管理が使えなくなります
 
 #### FMTONE.midi_set_tone(tone)
     ユーザ定義音色を4チャンネルすべてに設定
-    uint8_t tone[16]=
-
+    uint8_t tone[17]=
+    FeedBack        0-7
     OP1
       Attack Rate   0-15
       Decey Rate    0-15
