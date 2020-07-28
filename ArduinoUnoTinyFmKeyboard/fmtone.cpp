@@ -3,66 +3,55 @@
 
 #include "FmTone.h"
 #include "deftone.h"
-
+#include "tone_freq.h"
 
 #define MIDI_NOTE_OFF        0x80
 #define MIDI_NOTE_ON         0x90
-#define MIDI_COMMAND_PIN          0xC0
+#define MIDI_COMMAND_PIN     0xC0
 
 
+const uint8_t envelope_cnt[16] PROGMEM = {0, 1, 2, 3, 4, 5, 7, 10, 13, 20, 29, 43, 64, 86, 128, 255};
+                                         //endless,255,127,85,63,51,36,25,19,12,8,5,3,2,1,0
 
+struct FmOperator {
+    uint8_t fb;
+    uint8_t fb_val;
+
+    uint8_t atk;
+    uint8_t decy;
+    uint8_t sul;
+    uint8_t sus;
+    uint8_t rel;
+
+    uint8_t  tl;
+    uint8_t mul;
+    uint16_t wave_tbl;
+
+    uint16_t sin_pos;
+    uint16_t sin_step;
+
+    uint8_t env_state;
+    uint8_t env_cnt;
+    uint8_t env_step;
+    uint8_t level;
+};
 
 FmTone FMTONE;
-extern MemTone memtone[ MAX_TONE ];  //アセンブラからアクセスする
+extern FmOperator fm_operator[ MAX_MIDITONE * 2 ];  //アセンブラからアクセスする
+
+extern const char wave_sin[WAVE_TBL_SIZE];
+extern const char wave_tri[WAVE_TBL_SIZE];
+extern const char  wave_saw[WAVE_TBL_SIZE];
+extern const char  wave_rect[WAVE_TBL_SIZE];
+extern const char  wave_clipsin[WAVE_TBL_SIZE];
+extern const char  wave_abssin[WAVE_TBL_SIZE];
 
 
-
-const  char FmTone::wave_sin[WAVE_TBL_SIZE] PROGMEM = {
-  0, 3, 6, 9, 12, 15, 17, 20, 22, 24, 26, 28, 29, 30, 31, 31,
-  31, 31, 31, 30, 29, 28, 26, 24, 22, 20, 17, 15, 12, 9, 6, 3,
-  0, -3, -6, -9, -12, -15, -17, -20, -22, -24, -26, -28, -29, -30, -31, -31,
-  -31, -31, -31, -30, -29, -28, -26, -24, -22, -20, -17, -15, -12, -9, -6, -3,
-};
-
-const  char FmTone::wave_tri[WAVE_TBL_SIZE]  PROGMEM = {
-0,1,3,5,7,9,11,13,15,17,19,21,23,25,27,29,
-31,30,28,26,24,22,20,18,16,14,12,10,8,6,4,2,
-0,-2,-4,-6,-8,-10,-12,-14,-16,-18,-20,-22,-24,-26,-28,-30,
--31,-30,-28,-26,-24,-22,-20,-18,-16,-14,-12,-10,-8,-6,-4,-2
-
-};
-const  char FmTone::wave_saw[WAVE_TBL_SIZE]  PROGMEM = {
-  0,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14,
-  15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27 , 28 , 29, 30,
-  -31, -30, -29, -28, -27, -26, -25, -24, -23, -22, -21, -20, -19, -18, -17, -16,
-  -15, -14, -13, -12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1,  0,
-
-};
-const  char FmTone::wave_rect[WAVE_TBL_SIZE]  PROGMEM = {
-  -21, -21, -21, -21, -21, -21, -21, -21, -21, -21, -21, -21, -21, -21, -21, -21,
-  -21, -21, -21, -21, -21, -21, -21, -21, -21, -21, -21, -21, -21, -21, -21, -21,
-  21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21,
-  21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21, 21
-};
-
-const char FmTone::wave_clipsin[WAVE_TBL_SIZE]  PROGMEM = {
-  0,  3,  6,  8, 11, 14, 17, 19, 20, 20, 20, 20, 20, 20, 20, 20,
-  20, 20, 20, 20, 20, 20, 20, 20, 20, 19, 17, 14, 11,  8,  6,  3,
-  0, -3, -6, -8, -11, -14, -17, -19, -20, -20, -20, -20, -20, -20, -20, -20,
-  -20, -20, -20, -20, -20, -20, -20, -20, -20, -19, -17, -14, -11, -8, -6, -3,
-
-};
-const char FmTone::wave_abssin[WAVE_TBL_SIZE]  PROGMEM = {
-  0,  3,  6,  8, 11, 14, 17, 19, 21, 23, 25, 27, 28, 29, 30, 30,
-  31, 30, 30, 29, 28, 27, 25, 23, 21, 19, 17, 14, 11,  8,  6,  3,
-  0,  3,  6,  8, 11, 14, 17, 19, 21, 23, 25, 27, 28, 29, 30, 30,
-  31, 30, 30, 29, 28, 27, 25, 23, 21, 19, 17, 14, 11,  8,  6,  3,
-};
 
 FmTone::FmTone() {
-  for (int i = 0; i < MAX_TONE ; i ++) {
-    memtone[i].set_wave(wave_tri);
-    memtone[i].set_envelope(15, 9, 9, 2, 5, 31, 1);
+  for (int i = 0; i < MAX_MIDITONE * 2 ; i ++) {
+    fm_operator[i].wave_tbl = (wave_tri);
+    set_envelope(i,15, 9, 9, 2, 5, 31, 1);
 
   }
   for (int i = 0 ; i < MAX_MIDITONE; i++) {
@@ -115,9 +104,9 @@ FmTone::setup_hardware() {
   TCCR1B = 0;
   TCNT1 = 0;
 
-uint16_t freq;
-freq = (160000/PWM_KHZ + 5 ) /10;     //浮動小数点ライブラリを使いたくない
-OCR1A = freq;
+  uint16_t freq;
+  freq = (160000 / PWM_KHZ + 5 ) / 10;  //浮動小数点ライブラリを使いたくない
+  OCR1A = freq;
 
   TCCR1A = (1 << COM1A0);
   TCCR1B = (1 << WGM12) | (1 << CS10);
@@ -127,17 +116,8 @@ OCR1A = freq;
 }
 
 
-FmTone::note_on(uint8_t ch, uint8_t no, uint8_t vel) {
-  ch &= 0x0f;
-  memtone[ch].tone_on(no);
-  memtone[ch - 1].tone_on(no);
 
 
-}
-
-FmTone::note_off(uint8_t ch) {
-  memtone[ch].tone_off();
-}
 
 FmTone::set_wave(uint8_t ch , wavetype i) {
   uint16_t wave;
@@ -163,11 +143,11 @@ FmTone::set_wave(uint8_t ch , wavetype i) {
     default:
       break;
   }
-  memtone[ch].set_wave(wave);
+  fm_operator[ch].wave_tbl = (wave);
 }
 
 FmTone::midi_setwave(wavetype wave) {
-  for (uint8_t i = 0; i < MAX_TONE; i++) {
+  for (uint8_t i = 0; i < MAX_MIDITONE * 2; i++) {
     set_wave(i, wave);
   }
 }
@@ -181,7 +161,18 @@ FmTone::set_envelope(uint8_t ch, uint8_t atk, uint8_t decy, uint8_t sul, uint8_t
   rel &= 0x0f;
   tl &= 0x31;
   mul &= 0x1f;
-  memtone[ch].set_envelope(atk, decy, sul, sus, rel, tl, mul);
+    fm_operator[ch].atk = conv_count(atk);
+  fm_operator[ch].decy = conv_count(decy);
+  if(sul == 15){
+    fm_operator[ch].sul = 0;
+  }else{
+    fm_operator[ch].sul = 31 - sul * 2;
+  }
+  fm_operator[ch].sus = conv_count(sus);
+  fm_operator[ch].rel = conv_count(rel);
+  fm_operator[ch].tl =  31 - tl;
+  fm_operator[ch].mul = mul;
+
 }
 
 
@@ -189,18 +180,18 @@ FmTone::set_envelope(uint8_t ch, uint8_t atk, uint8_t decy, uint8_t sul, uint8_t
 
 FmTone::set_tone(uint8_t ch , uint8_t *dat) {
   ch *= 2;
-  memtone[ch].set_fb(dat[0] & 0x07);
-  
-  memtone[ch].set_envelope( dat[1],  dat[2],  dat[3],  dat[4],  dat[5],  dat[6],  dat[7] );
+  fm_operator[ch].fb = (dat[0] & 0x07);
+
+  set_envelope(ch, dat[1],  dat[2],  dat[3],  dat[4],  dat[5],  dat[6],  dat[7] );
   set_wave(ch, (wavetype)dat[8]);
   ch++;
-  memtone[ch].set_envelope( dat[9],  dat[10],  dat[11],  dat[12],  dat[13],  dat[14],  dat[15] );
+  set_envelope(ch, dat[9],  dat[10],  dat[11],  dat[12],  dat[13],  dat[14],  dat[15] );
   set_wave(ch, (wavetype)dat[16]);
 }
 
 FmTone::midi_set_tone(uint8_t * dat) {
 
-  
+
   for (uint8_t  i = 0; i < MAX_MIDITONE; i++) {
     set_tone( i, dat);
   }
@@ -208,9 +199,9 @@ FmTone::midi_set_tone(uint8_t * dat) {
 }
 
 FmTone::midi_pg_chg(uint8_t no) {
-    if (no > MAX_DEFAULT_TONE)
-     no = MAX_DEFAULT_TONE - 1;
-    midi_set_tone(default_tone[no]);
+  if (no > MAX_DEFAULT_TONE)
+    no = MAX_DEFAULT_TONE - 1;
+  midi_set_tone(default_tone[no]);
 
 }
 
@@ -222,7 +213,7 @@ FmTone::midi_command(uint8_t com, char dat1, char dat2, char dat3) {
 
   if ( this->midi_state == MIDI_POLY) {  // PolyPhonic Mode
 
-    
+
     if (ch == 0) {
 
       switch (com) {
@@ -236,8 +227,7 @@ FmTone::midi_command(uint8_t com, char dat1, char dat2, char dat3) {
             // キューから鳴らすチャンネル番号を得る
             if (active_voice_num == MAX_MIDITONE) {
               voice_ch = voice_queue[voice_queue_top];
-              memtone[voice_ch * 2].tone_off();
-              memtone[voice_ch * 2 + 1].tone_off();
+                midi_note_off(dat2);
             } else {
               voice_ch = voice_queue[voice_queue_top++];
               if (voice_queue_top == MAX_MIDITONE) {
@@ -246,9 +236,40 @@ FmTone::midi_command(uint8_t com, char dat1, char dat2, char dat3) {
               active_voice_num++;
             }
             ch_midino[voice_ch] = dat2;
-            memtone[voice_ch * 2].tone_on(dat2);
-            memtone[voice_ch * 2 + 1].tone_on(dat2);
-            memtone[voice_ch * 2 + 1].change_tl( dat3>>2);
+            int f;
+            if (dat2 >= 24)
+              dat2 -= 24;
+            f = pgm_read_word(&(tone_freq[dat2]));
+            if (fm_operator[voice_ch * 2].mul == 0) {
+              f = f >> 1;
+            } else {
+              f = f * fm_operator[voice_ch * 2].mul;
+            }
+            fm_operator[voice_ch * 2].sin_step = f;
+            fm_operator[voice_ch * 2].sin_pos = 0;
+            fm_operator[voice_ch * 2].env_state = 1;
+            fm_operator[voice_ch * 2].env_cnt = 249;
+            fm_operator[voice_ch * 2].level = 0;
+            fm_operator[voice_ch * 2].fb_val = 0;
+            fm_operator[voice_ch * 2].env_step = fm_operator[voice_ch * 2].atk;
+           
+
+            f = pgm_read_word(&(tone_freq[dat2]));
+            if (fm_operator[voice_ch * 2 + 1].mul == 0) {
+              f = f >> 1;
+            } else {
+              f = f * fm_operator[voice_ch * 2 + 1].mul;
+            }
+            fm_operator[voice_ch * 2 + 1].sin_step = f;
+            fm_operator[voice_ch * 2 + 1].sin_pos = 0;
+            fm_operator[voice_ch * 2 + 1].env_state = 1;
+            fm_operator[voice_ch * 2 + 1].env_cnt = 249;
+            fm_operator[voice_ch * 2 + 1].level = 0;
+            fm_operator[voice_ch * 2 + 1].fb_val = 0;
+            fm_operator[voice_ch * 2 + 1].env_step = fm_operator[voice_ch * 2 + 1].atk;
+
+
+            fm_operator[voice_ch * 2 + 1].tl = (  (dat3 >> 2) );
 
           }
           break;
@@ -258,9 +279,9 @@ FmTone::midi_command(uint8_t com, char dat1, char dat2, char dat3) {
 
           break;
         case MIDI_COMMAND_PIN:
-          if(this->midi_state == MIDI_POLY){
+          if (this->midi_state == MIDI_POLY) {
             midi_pg_chg(dat2);
-  
+
           }
         default:
           break;
@@ -272,24 +293,67 @@ FmTone::midi_command(uint8_t com, char dat1, char dat2, char dat3) {
       case MIDI_NOTE_ON:
 
         if (dat3 == 0) {
-          memtone[ch * 2].tone_off();
-          memtone[ch * 2 + 1].tone_off();
+          if (ch_midino[ch ] == dat2) {
+            //            fm_operator[ch * 2].tone_off();
+            //            fm_operator[ch * 2 + 1].tone_off();
+            fm_operator[ch * 2].env_state = 4;
+            fm_operator[ch * 2].env_step = fm_operator[ch * 2].rel;
 
+            fm_operator[ch * 2 + 1].env_state = 4;
+            fm_operator[ch * 2 + 1].env_step = fm_operator[ch * 2+1].rel;
+
+          }
         } else {
-          memtone[ch * 2].tone_on( dat2 );
-          memtone[ch * 2 + 1].tone_on(dat2);
+          int f;
+          ch_midino[ch ] = dat2;
+          if (dat2 >= 24)
+            dat2 -= 24;
+          f = pgm_read_word(&(tone_freq[dat2]));
+          if (fm_operator[ch * 2].mul == 0) {
+            f = f >> 1;
+          } else {
+            f = f * fm_operator[ch * 2].mul;
+          }
+          fm_operator[ch * 2].sin_step = f;
+          fm_operator[ch * 2].sin_pos = 0;
+          fm_operator[ch * 2].env_state = 1;
+          fm_operator[ch * 2].env_cnt = 249;
+          fm_operator[ch * 2].level = 0;
+          fm_operator[ch * 2].fb_val = 0;
+          fm_operator[ch * 2].env_step = fm_operator[ch * 2].atk;
 
+          f = pgm_read_word(&(tone_freq[dat2]));
+          if (fm_operator[ch * 2 + 1].mul == 0) {
+            f = f >> 1;
+          } else {
+            f = f * fm_operator[ch * 2 + 1].mul;
+          }
+          fm_operator[ch * 2 + 1].sin_step = f;
+          fm_operator[ch * 2 + 1].sin_pos = 0;
+          fm_operator[ch * 2 + 1].env_state = 1;
+          fm_operator[ch * 2 + 1].env_cnt = 249;
+          fm_operator[ch * 2 + 1].level = 0;
+          fm_operator[ch * 2 + 1].fb_val = 0;
+          fm_operator[ch * 2 + 1].env_step = fm_operator[ch * 2 + 1].atk;
+
+          fm_operator[ch * 2 + 1].tl = (  (dat3 >> 2) );
         }
         break;
 
       case MIDI_NOTE_OFF:
-        memtone[ch * 2].tone_off();
-        memtone[ch * 2 + 1].tone_off();
+        if (ch_midino[ch ] == dat2) {
+          //        fm_operator[ch * 2].tone_off();
+          //        fm_operator[ch * 2 + 1].tone_off();
+          fm_operator[ch * 2].env_state = 4;
+          fm_operator[ch * 2].env_step = fm_operator[ch * 2].rel;
 
+          fm_operator[ch * 2 + 1].env_state = 4;
+          fm_operator[ch * 2 + 1].env_step = fm_operator[ch * 2 + 1].rel;
+        }
         break;
 
-       case MIDI_COMMAND_PIN:
-         set_tone(ch,default_tone[dat2]);
+      case MIDI_COMMAND_PIN:
+        set_tone(ch, default_tone[dat2]);
         break;
       default:
 
@@ -301,8 +365,17 @@ FmTone::midi_command(uint8_t com, char dat1, char dat2, char dat3) {
 FmTone::midi_note_off(uint8_t midi_no) {
   for (uint8_t i = 0; i < MAX_MIDITONE; i++) {
     if (ch_midino[i] == midi_no) {
-      memtone[i * 2].tone_off();
-      memtone[i * 2 + 1].tone_off();
+
+      //      fm_operator[i * 2].tone_off();
+      //      fm_operator[i * 2 + 1].tone_off();
+
+      fm_operator[i * 2].env_state = 4;
+      fm_operator[i * 2].env_step = fm_operator[i * 2].rel;
+
+      fm_operator[i * 2 + 1].env_state = 4;
+      fm_operator[i * 2 + 1].env_step = fm_operator[i * 2 + 1].rel;
+
+
       ch_midino[i] = 0;
       // キューへオフしたチャンネル番号を入れる
       voice_queue[voice_queue_tail++] = i;
@@ -323,59 +396,60 @@ midistat FmTone::get_midistate() {
   return this->midi_state;
 }
 
+uint8_t FmTone::conv_count(uint8_t d) {
+  return pgm_read_byte(&(envelope_cnt[d & 0x0f]));
 
-
-FmTone::change_atk(uint8_t ch, uint8_t atk) {
-  memtone[ch].change_atk(atk);
-}
-FmTone::change_decy(uint8_t ch, uint8_t decy) {
-  memtone[ch].change_decy(decy);
-}
-FmTone::change_sul(uint8_t ch, uint8_t sul) {
-  memtone[ch].change_sul(sul * 2);
-}
-FmTone::change_sus(uint8_t ch, uint8_t sus) {
-  memtone[ch].change_sus(sus);
-}
-FmTone::change_rel(uint8_t ch, uint8_t rel) {
-  memtone[ch].change_rel(rel);
 }
 
-FmTone::change_tl(uint8_t ch, uint8_t tl) {
-  memtone[ch].change_tl(tl);
+FmTone::change_atk(uint8_t ch,uint8_t atk) {
+  fm_operator[ch].atk = conv_count(atk);
 }
+FmTone::change_decy(uint8_t ch,uint8_t decy) {
+  fm_operator[ch].decy = conv_count(decy);
+}
+FmTone::change_sul(uint8_t ch,uint8_t sul) {
+  fm_operator[ch].sul  = (sul*2 );
+}
+FmTone::change_sus(uint8_t ch,uint8_t sus) {
+  fm_operator[ch].sus = conv_count(sus);
+}
+FmTone::change_rel(uint8_t ch,uint8_t rel) {
+  fm_operator[ch].rel = conv_count(rel);
+}
+FmTone::change_tl(uint8_t ch,uint8_t tl){
+  fm_operator[ch].tl = tl;
+}
+FmTone::change_mul(uint8_t ch,uint8_t mul){
+  fm_operator[ch].mul = mul;
+}
+FmTone::change_fb(uint8_t ch,uint8_t fb){
 
-FmTone::change_mul(uint8_t ch, uint8_t mul) {
-  memtone[ch].change_mul(mul);
-}
-FmTone::change_fb(uint8_t ch, uint8_t fb){
-  memtone[ch].change_fb(fb);
+  if(fb == 7)
+    fb = 8;     // 7で割る所を8で割っているので最大値のみ補正
+  fm_operator[ch].fb = fb;
 }
 
 FmTone:: copy_tone() {
   for (int i = 0 ; i < MAX_MIDITONE; i ++) {
-    memtone[i * 2].set_atk( memtone[0].get_atk());
-    memtone[i * 2].set_decy( memtone[0].get_decy());
-    memtone[i * 2].set_sul( memtone[0].get_sul());
-    memtone[i * 2].set_sus( memtone[0].get_sus());
-    memtone[i * 2].set_rel( memtone[0].get_rel());
-    memtone[i * 2].set_tl( memtone[0].get_tl());
-    memtone[i * 2].set_mul( memtone[0].get_mul());
-    memtone[i * 2].set_wave( memtone[0].get_wave());
-    memtone[i * 2].set_fb( memtone[0].get_fb());
+    fm_operator[i * 2].atk = fm_operator[0].atk;
+    fm_operator[i * 2].decy = fm_operator[0].decy;
+    fm_operator[i * 2].sul = fm_operator[0].sul;
+    fm_operator[i * 2].sus = fm_operator[0].sus;
+    fm_operator[i * 2].rel = fm_operator[0].rel;
+    fm_operator[i * 2].tl = fm_operator[0].tl;
+    fm_operator[i * 2].mul = fm_operator[0].mul;
+    fm_operator[i * 2].wave_tbl =  fm_operator[0].wave_tbl;
+    fm_operator[i * 2].fb = fm_operator[0].fb;
 
-    memtone[i * 2 + 1].set_atk( memtone[1].get_atk());
-    memtone[i * 2 + 1].set_decy( memtone[1].get_decy());
-    memtone[i * 2 + 1].set_sul( memtone[1].get_sul());
-    memtone[i * 2 + 1].set_sus( memtone[1].get_sus());
-    memtone[i * 2 + 1].set_rel( memtone[1].get_rel());
-    memtone[i * 2 + 1].set_tl( memtone[1].get_tl());
-    memtone[i * 2 + 1].set_mul( memtone[1].get_mul());
-    memtone[i * 2 + 1].set_wave( memtone[1].get_wave());
-    memtone[i * 2 + 1].set_fb( memtone[1].get_fb());
-
-
-
+    fm_operator[i * 2 + 1].atk = fm_operator[1].atk;
+    fm_operator[i * 2 + 1].decy = fm_operator[1].decy;
+    fm_operator[i * 2 + 1].sul = fm_operator[1].sul;
+    fm_operator[i * 2 + 1].sus = fm_operator[1].sus;
+    fm_operator[i * 2 + 1].rel = fm_operator[1].rel;
+    fm_operator[i * 2 + 1].tl = fm_operator[1].tl;
+    fm_operator[i * 2 + 1].mul = fm_operator[1].mul;
+    fm_operator[i * 2 + 1].wave_tbl =  fm_operator[1].wave_tbl;
+    fm_operator[i * 2 + 1].fb = fm_operator[1].fb;
 
   }
 }

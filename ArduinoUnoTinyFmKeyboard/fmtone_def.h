@@ -3,12 +3,12 @@
  * sampling周波数20MHzなら 5 から　6
  */
 
-#define  MAX_MIDITONE 6
-#define MAX_TONE  (MAX_MIDITONE * 2)
+#define  MAX_MIDITONE 5
+
 
 
 #define SAMPLE_VAL  64
-#define PWM_KHZ  20
+#define PWM_KHZ  24
 
 //#define CLIP
 

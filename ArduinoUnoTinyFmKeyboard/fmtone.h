@@ -1,5 +1,6 @@
-#include "memtone.h"
+//#include "memtone.h"
 #include "fmtone_def.h"
+#include <avr/io.h>
 
 #define WAVE_TBL_SIZE  64
 #define TONE_DATLEN    17
@@ -15,12 +16,7 @@ class FmTone
 {
 
   protected:
-    static const  char wave_sin[];
-    static const  char wave_rect[];
-    static const  char wave_tri[];
-    static const  char wave_clipsin[];
-    static const  char wave_saw[];
-    static const  char wave_abssin[];
+
 
   private:
     /* MIDI ポリフォニック発音割り振り用　*/
@@ -31,14 +27,13 @@ class FmTone
 
     uint8_t ch_midino[MAX_MIDITONE];
     uint8_t active_voice_num = 0;
-
+    uint8_t conv_count(uint8_t );
   public:
 
 
     FmTone();
     setup_hardware();
-    note_on(uint8_t, uint8_t, uint8_t);
-    note_off(uint8_t );
+
     midi_command(uint8_t com, char dat1, char dat2, char dat3);
     midi_setwave(wavetype wave);
 
@@ -68,6 +63,8 @@ class FmTone
 
     midi_note_off(uint8_t);
     midistat midi_state = MIDI_POLY;
+  public:
+
 
 };
 
